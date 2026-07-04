@@ -145,6 +145,28 @@ def admin_refresh_cache() -> dict:
 
 
 # ---------- Global exception handler (registered in main.py) ------------
+def _retry_after_seconds(exc: RateLimitExceeded) -> int:
+    """Best-effort Retry-After in whole seconds for a slowapi RateLimitExceeded."""
+    # slowapi sets exc.limit to the Limit object that was breached.
+    rate_item = getattr(exc, "limit", None)
+    # Many slowapi versions also stash the underlying Limit under the
+    # exception's first positional arg as a fallback.
+    if rate_item is None and exc.args:
+        rate_item = exc.args[0] if hasattr(exc.args[0], "GRANULARITY") else None
+    gran = getattr(rate_item, "GRANULARITY", None) if rate_item is not None else None
+    if isinstance(gran, (int, float)) and gran > 0:
+        return int(gran)
+    # Slowapi may have pre-computed headers; prefer that when present.
+    headers = getattr(exc, "headers", None) or {}
+    for k, v in headers.items():
+        if k.lower() == "retry-after":
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return 60
+    return 60
+
+
 def make_exception_handler():
     async def handler(request: Request, exc: Exception) -> JSONResponse:
         if isinstance(exc, AppError):
@@ -155,23 +177,26 @@ def make_exception_handler():
                 "friendly": friendly_message(exc.code),
             }
             status = exc.http_status
-        elif isinstance(exc, RateLimitExceeded):
+            return JSONResponse(payload, status_code=status)
+        if isinstance(exc, RateLimitExceeded):
             payload = {
                 "error": "rate_limited",
                 "code": "rate_limited",
                 "request_id": REQUEST_ID.get(),
                 "friendly": friendly_message("rate_limited"),
             }
-            status = 429
-        else:
-            payload = {
-                "error": "internal_error",
-                "code": "internal_error",
-                "request_id": REQUEST_ID.get(),
-                "friendly": friendly_message("internal_error"),
-            }
-            status = 500
-        return JSONResponse(payload, status_code=status)
+            return JSONResponse(
+                payload,
+                status_code=429,
+                headers={"Retry-After": str(_retry_after_seconds(exc))},
+            )
+        payload = {
+            "error": "internal_error",
+            "code": "internal_error",
+            "request_id": REQUEST_ID.get(),
+            "friendly": friendly_message("internal_error"),
+        }
+        return JSONResponse(payload, status_code=500)
 
     return handler
 

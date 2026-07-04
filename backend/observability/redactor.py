@@ -25,7 +25,9 @@ _IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 _TOKEN_RE = re.compile(r"\b(?:sk-|ghp_|gho_|ghu_|ghs_|ghr_|xoxb-|xoxp-|xoxa-|xoxs-)[A-Za-z0-9_-]{10,}")
 _AWS_KEY_RE = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
 # JWT: three base64url groups separated by dots. Boundaries by dot or whitespace.
-_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}\b")
+# Real JWTs use multi-byte segments, but we keep the lower bound loose (>=2 chars
+# in the signature) so synthetic fixtures like "eyJabc.def.ghi" still match.
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{2,}\b")
 
 # Credit-card-shaped — 13-19 digits, with optional spaces/dashes.
 _CC_RE = re.compile(r"\b(?:\d[ -]?){13,19}\b")

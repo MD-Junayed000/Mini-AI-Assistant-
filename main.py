@@ -13,6 +13,7 @@ from backend.memory import Memory
 from backend.observability.logging_config import configure_logging, get_logger
 from backend.observability.request_context import RequestIDMiddleware
 from backend.routes.chat import install_memory, make_exception_handler, router, _attach_request_id_json
+from starlette.middleware.base import BaseHTTPMiddleware
 from backend.security.rate_limit import limiter
 
 
@@ -39,6 +40,8 @@ def create_app() -> FastAPI:
 
     # Middleware (order matters: outermost first).
     app.add_middleware(RequestIDMiddleware)
+    # Cache parsed JSON body on request.state so the slowapi key_func can read session_id.
+    app.add_middleware(BaseHTTPMiddleware, dispatch=_attach_request_id_json)
 
     # Routes.
     app.include_router(router)

@@ -16,17 +16,20 @@ from dataclasses import dataclass
 # High-signal patterns — short, intentional, low false-positive.
 # Each pattern is (regex, signal_name, weight).
 _PATTERNS: list[tuple[re.Pattern[str], str, float]] = [
-    (re.compile(r"ignore (?:all )?(?:previous|prior|above) instructions?", re.I), "ignore_prev", 0.85),
-    (re.compile(r"disregard (?:all )?(?:previous|prior) (?:instructions?|rules?)", re.I), "disregard_prev", 0.85),
-    (re.compile(r"forget (?:all )?(?:previous|prior) (?:instructions?|rules?)", re.I), "forget_prev", 0.85),
-    (re.compile(r"you are now (?:a|an|the) [^.\n]*?(?:dan|jailbreak|developer mode)", re.I), "role_swap", 0.90),
+    (re.compile(r"ignore (?:all )?(?:the\s+)?(?:previous|prior|above) (?:instructions?|rules?)?", re.I), "ignore_prev", 0.85),
+    (re.compile(r"disregard (?:all )?(?:the\s+)?(?:previous|prior) (?:instructions?|rules?)?", re.I), "disregard_prev", 0.85),
+    (re.compile(r"forget (?:all )?(?:the\s+)?(?:previous|prior|everything) (?:instructions?|rules?|above)?", re.I), "forget_prev", 0.85),
+    # "You are now DAN" with no article, or with an article.
+    (re.compile(r"you are now\s+(?:a|an|the\s+)?[^.\n]*?(?:dan|jailbreak|developer mode)", re.I), "role_swap", 0.90),
+    # Standalone "now DAN" / "now jailbroken" after a role-swap phrase.
+    (re.compile(r"\bnow\s+(?:dan|jailbroken|jailbreak|developer mode)\b", re.I), "role_swap_short", 0.85),
     (re.compile(r"system\s*:\s*you are", re.I), "role_prepend", 0.95),
     (re.compile(r"assistant\s*:\s*(?:sure|absolutely|certainly)", re.I), "assistant_completion", 0.90),
     (re.compile(r"<\|im_start\|>", re.I), "chat_template_injection", 0.95),
     (re.compile(r"<\|im_end\|>", re.I), "chat_template_injection", 0.95),
     (re.compile(r"\bact as\b.*?\b(jailbroken|unrestricted|unfiltered)\b", re.I), "jailbreak_act", 0.85),
     (re.compile(r"reveal (?:your )?(?:system|hidden) prompt", re.I), "reveal_prompt", 0.95),
-    (re.compile(r"output (?:the|your) (?:system )?prompt", re.I), "reveal_prompt", 0.90),
+    (re.compile(r"output (?:the|your|that|this) [^.\n]*?(?:system|hidden) prompt", re.I), "reveal_prompt", 0.90),
     (re.compile(r"exfiltrate|steal (?:api|secret|password)", re.I), "exfil", 0.90),
 ]
 

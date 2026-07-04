@@ -1,9 +1,197 @@
-INFO:     Started server process [25704]
+INFO:     Started server process [6632]
 INFO:     Waiting for application startup.
-{"settings_keys": ["ollama_cloud_base_url", "ollama_cloud_api_key", "ollama_primary_model", "ollama_fallback_model", "ollama_timeout_seconds", "hf_inference_base_url", "hf_inference_api_key", "hf_embedding_model", "hf_rerank_model", "hf_vision_model", "chroma_persist_dir", "chroma_collection", "bm25_cache_path", "mongodb_uri", "mongodb_db", "mongodb_collection", "rate_limit_per_min", "health_cache_ttl_seconds", "max_context_chars", "confidence_gate_threshold", "rerank_disabled", "log_dir", "log_level", "log_max_bytes", "log_backup_count", "otel_exporter_otlp_endpoint", "otel_exporter_otlp_headers", "otel_service_name"], "event": "startup", "level": "info", "timestamp": "2026-07-04T09:30:31.277198Z"}
+{"settings_keys": ["ollama_cloud_base_url", "ollama_cloud_api_key", "ollama_primary_model", "ollama_fallback_model", "ollama_timeout_seconds", "hf_inference_base_url", "hf_inference_api_key", "hf_embedding_model", "hf_rerank_model", "hf_vision_model", "chroma_persist_dir", "chroma_collection", "bm25_cache_path", "mongodb_uri", "mongodb_db", "mongodb_collection", "rate_limit_per_min", "health_cache_ttl_seconds", "max_context_chars", "confidence_gate_threshold", "rerank_disabled", "log_dir", "log_level", "log_max_bytes", "log_backup_count", "otel_exporter_otlp_endpoint", "otel_exporter_otlp_headers", "otel_service_name"], "event": "startup", "level": "info", "timestamp": "2026-07-04T11:59:36.974989Z"}
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+HTTP Request: GET https://ollama.com/api/tags "HTTP/1.1 200 OK"
 Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
 Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
 Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
-{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "a75aa4564255", "level": "info", "timestamp": "2026-07-04T09:30:35.912936Z"}
+Add of existing embedding ID: notes::chunk::0
+Add of existing embedding ID: notes::chunk::1
+Add of existing embedding ID: notes::chunk::2
+Add of existing embedding ID: notes::chunk::3
+Add of existing embedding ID: notes::chunk::4
+Add of existing embedding ID: notes::chunk::5
+Add of existing embedding ID: notes::chunk::6
+Add of existing embedding ID: notes::chunk::7
+Add of existing embedding ID: notes::chunk::8
+Add of existing embedding ID: notes::chunk::9
+Add of existing embedding ID: notes::chunk::0
+Add of existing embedding ID: notes::chunk::1
+Add of existing embedding ID: notes::chunk::2
+Add of existing embedding ID: notes::chunk::3
+Add of existing embedding ID: notes::chunk::4
+Add of existing embedding ID: notes::chunk::5
+Add of existing embedding ID: notes::chunk::6
+Add of existing embedding ID: notes::chunk::7
+Add of existing embedding ID: notes::chunk::8
+Add of existing embedding ID: notes::chunk::9
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "47f1198a96a4", "level": "info", "timestamp": "2026-07-04T11:59:46.299710Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "17ac680091d2", "level": "info", "timestamp": "2026-07-04T11:59:48.460170Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "0a329ef5338d", "level": "info", "timestamp": "2026-07-04T11:59:50.927115Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "2e6d34a40f86", "level": "info", "timestamp": "2026-07-04T11:59:53.334744Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "50610f62e0bb", "level": "info", "timestamp": "2026-07-04T11:59:57.634034Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "00d85ab02013", "level": "info", "timestamp": "2026-07-04T11:59:59.634542Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "d9412e58285f", "level": "info", "timestamp": "2026-07-04T12:00:02.580943Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "c27e5ed4ff71", "level": "info", "timestamp": "2026-07-04T12:00:04.297727Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "0f805d7da704", "level": "info", "timestamp": "2026-07-04T12:00:05.894007Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "f9b09417370b", "level": "info", "timestamp": "2026-07-04T12:00:07.610790Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "9e6fbba649f2", "level": "info", "timestamp": "2026-07-04T12:00:09.321411Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "ad5d21fdeff8", "level": "info", "timestamp": "2026-07-04T12:00:12.143080Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "54ab22b04eff", "level": "info", "timestamp": "2026-07-04T12:00:14.077378Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "1ece48da27e4", "level": "info", "timestamp": "2026-07-04T12:00:15.719462Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "a0bb668c8a62", "level": "info", "timestamp": "2026-07-04T12:00:18.083499Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "74dad4e0794c", "level": "info", "timestamp": "2026-07-04T12:00:19.912574Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "c04f57a1f016", "level": "info", "timestamp": "2026-07-04T12:00:21.626254Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "d75fd28b898a", "level": "info", "timestamp": "2026-07-04T12:00:23.214020Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "eb5a034da2fd", "level": "info", "timestamp": "2026-07-04T12:00:26.478582Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "112b94eb90c1", "level": "info", "timestamp": "2026-07-04T12:00:28.568377Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "645cf0b947de", "level": "info", "timestamp": "2026-07-04T12:00:30.435875Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "bcebd5d9deb5", "level": "info", "timestamp": "2026-07-04T12:00:32.799508Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "6d62df64a33a", "level": "info", "timestamp": "2026-07-04T12:00:34.565409Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "b5f5c314f9db", "level": "info", "timestamp": "2026-07-04T12:00:36.361850Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "422c3bf4526b", "level": "info", "timestamp": "2026-07-04T12:00:39.534035Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "5032c42b8381", "level": "info", "timestamp": "2026-07-04T12:00:41.165255Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "574105659560", "level": "info", "timestamp": "2026-07-04T12:00:42.800164Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "e4c61eb1496d", "level": "info", "timestamp": "2026-07-04T12:00:44.424385Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "7744e923b2a1", "level": "info", "timestamp": "2026-07-04T12:00:46.462222Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "cb7628222772", "level": "info", "timestamp": "2026-07-04T12:00:49.419037Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "7bfc50679d8e", "level": "info", "timestamp": "2026-07-04T12:00:53.877326Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "46be79b9c45b", "level": "info", "timestamp": "2026-07-04T12:00:55.594409Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "7417e434cf16", "level": "info", "timestamp": "2026-07-04T12:01:15.485265Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "a407c8607b92", "level": "info", "timestamp": "2026-07-04T12:01:17.778733Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "553acaa38d62", "level": "info", "timestamp": "2026-07-04T12:01:19.993408Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "f7ad0b12d64b", "level": "info", "timestamp": "2026-07-04T12:01:22.563871Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "4f72df52fa9d", "level": "info", "timestamp": "2026-07-04T12:01:24.731468Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "f17f31825fd1", "level": "info", "timestamp": "2026-07-04T12:01:26.869822Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "ef49b2da7e2b", "level": "info", "timestamp": "2026-07-04T12:01:28.562229Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "9de559dbb1f4", "level": "info", "timestamp": "2026-07-04T12:01:30.197328Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "152af5b9fd8a", "level": "info", "timestamp": "2026-07-04T12:01:33.362742Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "0381a83a1fe6", "level": "info", "timestamp": "2026-07-04T12:01:36.722785Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "56ce47280c8d", "level": "info", "timestamp": "2026-07-04T12:01:38.993506Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "2038a9ed414e", "level": "info", "timestamp": "2026-07-04T12:01:43.367336Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "10bb7835b43a", "level": "info", "timestamp": "2026-07-04T12:01:45.501568Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "1cf43fa02ac2", "level": "info", "timestamp": "2026-07-04T12:01:47.448265Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "f522428cb894", "level": "info", "timestamp": "2026-07-04T12:01:55.341019Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "80043f1bf0ec", "level": "info", "timestamp": "2026-07-04T12:01:57.040034Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "c9da38e9978c", "level": "info", "timestamp": "2026-07-04T12:01:59.564585Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "093796bd947a", "level": "info", "timestamp": "2026-07-04T12:02:02.518806Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "e83b328c2a60", "level": "info", "timestamp": "2026-07-04T12:02:08.267046Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "d479753c036f", "level": "info", "timestamp": "2026-07-04T12:02:10.170334Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "1b8d9d0513c6", "level": "info", "timestamp": "2026-07-04T12:02:15.377426Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "be282410b633", "level": "info", "timestamp": "2026-07-04T12:02:17.703285Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "f31edfa606f1", "level": "info", "timestamp": "2026-07-04T12:02:20.233376Z"}
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "de84a57865db", "level": "info", "timestamp": "2026-07-04T12:02:22.366524Z"}
