@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     health_cache_ttl_seconds: int = 10
     max_context_chars: int = 8_000
     confidence_gate_threshold: float = 0.62
+    # Set true to skip the rerank stage entirely (the chat pipeline will
+    # fall back to RRF ordering alone).
+    rerank_disabled: bool = False
 
     # --- Logging -----------------------------------------------------------
     log_dir: str = "./logs"
@@ -58,6 +61,7 @@ class Settings(BaseSettings):
 
     # --- OpenTelemetry (optional) -----------------------------------------
     otel_exporter_otlp_endpoint: str = ""
+    otel_exporter_otlp_headers: str = ""   # e.g. "x-honeycomb-team=abc123"
     otel_service_name: str = "mini-ai-assistant"
 
     @property

@@ -1,7 +1,22 @@
 """ChromaDB persistent client wrapper.
 
-We compute embeddings via HF Inference and pass them in — Chroma's default
-embedding function is intentionally avoided so we have one source of truth.
+Embedding strategy: we let ChromaDB's built-in ONNX embedding function
+(`all-MiniLM-L6-v2`) compute vectors, instead of calling HF ourselves.
+
+Why this change:
+  - The HF Router's `/v1/embeddings` endpoint only serves models listed
+    under "Inference Providers". Most sentence-transformer checkpoints
+    (BAAI/bge-small-en-v1.5, all-MiniLM-L6-v2, e5-*, etc.) return 404.
+  - Local `sentence-transformers` requires torch, which on Windows can
+    fail with WinError 1114 (DLL init) — we'd rather not add torch to
+    the dependency graph for embeddings alone.
+  - ChromaDB's bundled ONNX runtime is already in the dependency graph
+    (chromadb 0.5.7 pins onnxruntime<1.20), runs entirely on CPU, and
+    produces 384-d MiniLM vectors that match the project's retrieval
+    shape.
+
+The `HFEmbeddingClient` is still available in `backend.llm.embeddings`
+for code that needs explicit vectors (reranking, custom pipelines).
 """
 from __future__ import annotations
 
@@ -12,7 +27,6 @@ from typing import Any
 
 from backend.config import get_settings
 from backend.errors import RetrieverError
-from backend.llm.embeddings import HFEmbeddingClient
 from backend.observability.logging_config import get_logger
 
 log = get_logger("chroma")
@@ -26,6 +40,13 @@ class Hit:
     score: float  # cosine similarity in [-1, 1]
 
 
+def _default_embedding_function():
+    """ChromaDB's bundled ONNX MiniLM embedder (no torch)."""
+    from chromadb.utils import embedding_functions
+
+    return embedding_functions.DefaultEmbeddingFunction()
+
+
 class ChromaStore:
     """Persistent Chroma client bound to one collection."""
 
@@ -36,11 +57,12 @@ class ChromaStore:
         import chromadb
 
         self._client = chromadb.PersistentClient(path=s.chroma_persist_dir)
+        self._embed_fn = _default_embedding_function()
         self._collection = self._client.get_or_create_collection(
             name=self._collection_name,
             metadata={"hnsw:space": "cosine"},
+            embedding_function=self._embed_fn,
         )
-        self._embedder = HFEmbeddingClient()
 
     async def add_texts(
         self,
@@ -51,17 +73,10 @@ class ChromaStore:
     ) -> None:
         if not texts:
             return
-        # Batch-embed (HF supports batches; we cap at 64 to stay under
-        # request size limits).
-        BATCH = 64
-        vectors: list[list[float]] = []
-        for i in range(0, len(texts), BATCH):
-            vectors.extend(await self._embedder.embed(texts[i : i + BATCH]))
 
         def _add() -> None:
             self._collection.add(
                 ids=ids,
-                embeddings=vectors,
                 documents=texts,
                 metadatas=metadatas,
             )
@@ -71,11 +86,10 @@ class ChromaStore:
     async def query(self, text: str, top_k: int = 8) -> list[Hit]:
         if not text.strip():
             return []
-        vector = await self._embedder.embed_one(text)
 
         def _q() -> dict[str, Any]:
             return self._collection.query(
-                query_embeddings=[vector],
+                query_texts=[text],
                 n_results=top_k,
                 include=["documents", "metadatas", "distances"],
             )
@@ -109,6 +123,7 @@ class ChromaStore:
             self._collection = self._client.get_or_create_collection(
                 name=self._collection_name,
                 metadata={"hnsw:space": "cosine"},
+                embedding_function=self._embed_fn,
             )
 
         await asyncio.to_thread(_r)

@@ -9,8 +9,15 @@ structlog==24.4.0
 prometheus-client==0.21.0
 
 # Vector DB + embeddings
+# Chroma 0.5.7 was built against numpy<2, onnxruntime<1.20, tokenizers<0.21.
+# Pin the transitive wheels to that era so pip's resolver stops trying to
+# pull the latest and silently OOM the build.
 chromadb==0.5.7
-sentence-transformers==3.2.1
+# Embeddings use ChromaDB's bundled ONNX MiniLM embedder (all-MiniLM-L6-v2,
+# 384-d) so we don't need to install torch-backed sentence-transformers.
+numpy<2.0
+onnxruntime>=1.14.1,<1.20
+tokenizers<0.21
 
 # BM25 retrieval + reranking
 rank-bm25==0.2.2

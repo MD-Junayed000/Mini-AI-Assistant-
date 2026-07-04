@@ -27,7 +27,12 @@ WORKDIR /app
 
 # Layer 1: requirements only (cached when source changes)
 COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# BuildKit cache mount keeps pip wheels between builds — much faster rebuilds.
+# --no-build-isolation avoids pip spinning up an isolated build env that
+# runs out of memory compiling grpcio/onnxruntime tokenizers.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install --no-build-isolation --prefer-binary -r requirements.txt
 
 
 # ---- Stage 2: runtime ----------------------------------------------------

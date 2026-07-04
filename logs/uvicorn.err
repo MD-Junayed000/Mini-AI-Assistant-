@@ -1,0 +1,9 @@
+INFO:     Started server process [25704]
+INFO:     Waiting for application startup.
+{"settings_keys": ["ollama_cloud_base_url", "ollama_cloud_api_key", "ollama_primary_model", "ollama_fallback_model", "ollama_timeout_seconds", "hf_inference_base_url", "hf_inference_api_key", "hf_embedding_model", "hf_rerank_model", "hf_vision_model", "chroma_persist_dir", "chroma_collection", "bm25_cache_path", "mongodb_uri", "mongodb_db", "mongodb_collection", "rate_limit_per_min", "health_cache_ttl_seconds", "max_context_chars", "confidence_gate_threshold", "rerank_disabled", "log_dir", "log_level", "log_max_bytes", "log_backup_count", "otel_exporter_otlp_endpoint", "otel_exporter_otlp_headers", "otel_service_name"], "event": "startup", "level": "info", "timestamp": "2026-07-04T09:30:31.277198Z"}
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+{"chosen": "local_cosine", "event": "rerank_backend", "request_id": "a75aa4564255", "level": "info", "timestamp": "2026-07-04T09:30:35.912936Z"}

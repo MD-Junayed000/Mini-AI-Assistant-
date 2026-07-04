@@ -1,5 +1,7 @@
 """HTTP routes — /ingest, /chat, /session/{id}/reset, /healthz, /metrics, /admin/cache/refresh."""
-from __future__ import annotations
+# NOTE: no `from __future__ import annotations` here — slowapi's decorator wrapper
+# breaks FastAPI's signature introspection of `body: ChatIn` when PEP 563 turns
+# annotations into strings, raising PydanticUndefinedAnnotation at import time.
 
 from pathlib import Path
 
@@ -8,6 +10,10 @@ from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 from slowapi.errors import RateLimitExceeded
+
+from backend.config import get_settings
+
+_settings = get_settings()
 
 from backend.errors import AppError, ValidationError, friendly_message
 from backend.ingestion.pipeline import ingest_file
@@ -84,7 +90,11 @@ async def ingest(file: UploadFile = File(...)) -> dict:
 
 
 @router.post("/chat")
-@limiter.limit(lambda: f"{limiter._default_limits[0]}")  # honour global default
+# Honour the global rate limit configured in Settings.
+# (We can't reference `limiter._default_limits` here — slowapi prints
+# "couldn't parse rate limit string '<LimitGroup object ...>'" because the
+# decorator stringifies the object. A plain string from settings works.)
+@limiter.limit(f"{_settings.rate_limit_per_min}/minute")
 async def chat(request: Request, body: ChatIn, memory: Memory = Depends(get_memory)) -> dict:
     tr = tracer()
     if hasattr(tr, "start_as_current_span"):

@@ -54,6 +54,15 @@ def init_tracing() -> Any:
     # Auto-derive `/v1/traces` for HTTP exporter if the user supplied a bare host.
     http_url = endpoint if endpoint.endswith("/v1/traces") else f"{endpoint}/v1/traces"
 
+    # Optional auth headers — parse "k1=v1,k2=v2" into a dict.
+    headers = None
+    if settings.otel_exporter_otlp_headers:
+        headers = dict(
+            item.split("=", 1)
+            for item in settings.otel_exporter_otlp_headers.split(",")
+            if "=" in item
+        )
+
     resource = Resource.create(
         {
             "service.name": settings.otel_service_name,
@@ -84,12 +93,12 @@ def init_tracing() -> Any:
             except Exception as e:  # noqa: BLE001
                 log.warning("otel_shutdown_failed", error=str(e))
 
-    inner = OTLPSpanExporter(endpoint=http_url)
+    inner = OTLPSpanExporter(endpoint=http_url, headers=headers)
     safe = _SafeExporter(inner)
     provider.add_span_processor(BatchSpanProcessor(safe))
     trace.set_tracer_provider(provider)
     _tracer = trace.get_tracer(settings.otel_service_name)
-    log.info("otel_initialised", endpoint=http_url)
+    log.info("otel_initialised", endpoint=http_url, has_headers=bool(headers))
     return _tracer
 
 

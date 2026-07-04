@@ -4,14 +4,13 @@
 # Mongo is optional; the app falls back to in-process memory if Atlas is absent.
 # =============================================================================
 
-version: "3.9"
-
 services:
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mini-ai-assistant:latest
+      target: runtime          # only build the runtime stage (skip builder cache lookup)
+    image: mini-ai-assistant:api
     container_name: mini-ai-api
     restart: unless-stopped
     env_file:
@@ -37,7 +36,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mini-ai-assistant:latest
+      target: runtime          # UI uses the same runtime stage; streamlit pulls deps from requirements.txt
+    image: mini-ai-assistant:ui
     container_name: mini-ai-ui
     restart: unless-stopped
     env_file:

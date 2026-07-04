@@ -1,67 +1,139 @@
-"""Streamlit UI — sidebar + chat + friendly error banner.
+"""Mini AI Assistant — Streamlit UI.
 
-Run with: streamlit run ui/streamlit_app.py
+Professional chat-first layout:
+  - Sidebar: configuration, KB ingest, session reset, status indicators
+  - Main:    message stream with role-based bubbles + collapsible sources
+
+Run with:
+    streamlit run ui/streamlit_app.py --server.port 8501
 """
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
+from typing import Any
 
 import httpx
 import streamlit as st
 
-st.set_page_config(page_title="Mini AI Assistant", page_icon="🤖", layout="wide")
+# ---- Page config -----------------------------------------------------------
+st.set_page_config(
+    page_title="Mini AI Assistant",
+    page_icon=None,            # no decorative favicon emoji
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 API = "http://localhost:8000"
 
 
+# ---- Session state helpers -------------------------------------------------
 def _session_id() -> str:
     return st.session_state.setdefault("session_id", uuid.uuid4().hex[:12])
 
 
-# ----- Sidebar ------------------------------------------------------------
+def _messages() -> list[dict[str, Any]]:
+    return st.session_state.setdefault("messages", [])
+
+
+def _reset_conversation(sid: str) -> None:
+    """Tell the API to forget the conversation, then clear local state."""
+    try:
+        httpx.post(f"{API}/session/{sid}/reset", timeout=10).raise_for_status()
+    except httpx.HTTPError as exc:
+        st.toast(f"Session reset failed: {exc}", icon=None)
+    st.session_state.messages = []
+    st.session_state.session_id = uuid.uuid4().hex[:12]
+
+
+# ---- Health probe (cached) -------------------------------------------------
+@st.cache_data(ttl=10, show_spinner=False)
+def _health() -> dict[str, Any]:
+    try:
+        with httpx.Client(timeout=4) as cx:
+            r = cx.get(f"{API}/healthz")
+            r.raise_for_status()
+            return r.json()
+    except Exception as exc:  # noqa: BLE001
+        return {"overall": "down", "components": {}, "error": str(exc)}
+
+
+# ---- Sidebar ---------------------------------------------------------------
 with st.sidebar:
-    st.title("📚 Knowledge Base")
-    uploaded = st.file_uploader("Upload a document (PDF / TXT / MD)", type=["pdf", "txt", "md"])
-    if uploaded and st.button("Ingest"):
-        try:
-            with httpx.Client(timeout=120) as cx:
-                r = cx.post(f"{API}/ingest", files={"file": (uploaded.name, uploaded.getvalue())})
-                r.raise_for_status()
-                st.success(f"Ingested {r.json().get('chunks', 0)} chunks.")
-        except httpx.HTTPError as e:
-            st.error(e)
+    st.markdown("### Configuration")
+    api_base = st.text_input("API base URL", value=API, help="Where uvicorn is listening.")
+    API = api_base.rstrip("/") or API
 
     st.divider()
-    if st.button("Clear conversation"):
-        sid = _session_id()
-        try:
-            httpx.post(f"{API}/session/{sid}/reset").raise_for_status()
-            st.session_state.messages = []
-            st.experimental_rerun()
-        except httpx.HTTPError as e:
-            st.error(e)
+    st.markdown("### Knowledge Base")
+    uploaded = st.file_uploader(
+        "Add a document (PDF, TXT, MD)",
+        type=["pdf", "txt", "md"],
+        accept_multiple_files=False,
+    )
+    if uploaded is not None:
+        if st.button("Upload to knowledge base", use_container_width=True):
+            with st.spinner("Indexing document..."):
+                try:
+                    with httpx.Client(timeout=180) as cx:
+                        r = cx.post(
+                            f"{API}/ingest",
+                            files={"file": (uploaded.name, uploaded.getvalue())},
+                        )
+                        r.raise_for_status()
+                        st.success(f"Indexed {r.json().get('chunks', 0)} chunks from {uploaded.name}")
+                except httpx.HTTPError as exc:
+                    st.error(str(exc))
 
-# ----- Main chat ----------------------------------------------------------
-st.title("🤖 Mini AI Assistant")
+    st.divider()
+    st.markdown("### Session")
+    sid = _session_id()
+    st.code(sid, language=None)
+    st.button("Clear conversation", use_container_width=True, on_click=_reset_conversation, args=(sid,))
 
-sid = _session_id()
-st.caption(f"Session: `{sid}`")
+    st.divider()
+    st.markdown("### Status")
+    health = _health()
+    overall = health.get("overall", "unknown")
+    if overall == "up":
+        st.markdown(f"**API:** :green[connected]")
+    elif overall == "degraded":
+        st.markdown(f"**API:** :orange[degraded]")
+    else:
+        st.markdown(f"**API:** :red[unreachable]")
+    for name, state in (health.get("components") or {}).items():
+        glyph = "ok" if state == "up" else "down"
+        st.markdown(f"- `{name}`: {glyph}")
+    st.caption(f"checked {datetime.now().strftime('%H:%M:%S')}")
 
-messages: list[dict] = st.session_state.setdefault("messages", [])
 
-for m in messages:
-    with st.chat_message(m["role"]):
-        st.markdown(m["content"])
-        if m.get("sources"):
-            with st.expander(f"Sources ({len(m['sources'])})"):
-                for s in m["sources"]:
-                    st.markdown(f"- **{s['id']}** — {s.get('preview', '')[:160]}…")
+# ---- Main pane -------------------------------------------------------------
+st.markdown("## Mini AI Assistant")
+st.caption(
+    "Ask questions about orders, products, or the knowledge base. "
+    "The assistant uses retrieval-augmented generation with structured tool calls."
+)
 
-user_input = st.chat_input("Ask anything about orders, products, or the knowledge base…")
-if user_input:
+for msg in _messages():
+    role = msg.get("role", "assistant")
+    with st.chat_message(role):
+        st.markdown(msg.get("content", ""))
+        sources = msg.get("sources") or []
+        if sources:
+            with st.expander(f"Sources ({len(sources)})", expanded=False):
+                for s in sources:
+                    sid_str = s.get("id", "?")
+                    preview = (s.get("preview") or "")[:200]
+                    st.markdown(f"- **{sid_str}** — {preview}")
+
+prompt = st.chat_input("Ask anything about orders, products, or the knowledge base")
+if prompt:
+    sid = _session_id()
+    messages = _messages()
+
     with st.chat_message("user"):
-        st.markdown(user_input)
-    messages.append({"role": "user", "content": user_input})
+        st.markdown(prompt)
+    messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("assistant"):
         placeholder = st.empty()
@@ -69,30 +141,39 @@ if user_input:
             with httpx.Client(timeout=120) as cx:
                 r = cx.post(
                     f"{API}/chat",
-                    json={"session_id": sid, "message": user_input},
+                    json={"session_id": sid, "message": prompt},
                 )
                 r.raise_for_status()
                 data = r.json()
-        except httpx.HTTPStatusError as e:
+        except httpx.HTTPStatusError as exc:
             try:
-                data = e.response.json()
+                data = exc.response.json()
             except Exception:  # noqa: BLE001
-                data = {"error": str(e), "code": "internal_error"}
+                data = {"error": str(exc), "code": "internal_error"}
             placeholder.error(data.get("friendly", "Something went wrong."))
-            with st.expander("Details"):
+            with st.expander("Details", expanded=False):
                 st.json(data)
-            messages.append({"role": "assistant", "content": data.get("friendly", "Error.")})
-        except httpx.HTTPError as e:
-            placeholder.error(f"Network error: {e}")
+            messages.append(
+                {"role": "assistant", "content": data.get("friendly", "Error.")}
+            )
+        except httpx.HTTPError as exc:
+            placeholder.error(f"Network error: {exc}")
             messages.append({"role": "assistant", "content": "Network error."})
         else:
-            placeholder.markdown(data.get("answer", ""))
+            answer = data.get("answer", "(no answer)")
+            placeholder.markdown(answer)
             sources = data.get("sources") or []
             if sources:
-                with st.expander(f"Sources ({len(sources)})"):
+                with st.expander(f"Sources ({len(sources)})", expanded=False):
                     for s in sources:
-                        st.markdown(f"- **{s['id']}** — {s.get('preview', '')[:160]}…")
-            msgs_text = data.get("answer", "")
-            messages.append({"role": "assistant", "content": msgs_text, "sources": sources})
+                        sid_str = s.get("id", "?")
+                        preview = (s.get("preview") or "")[:200]
+                        st.markdown(f"- **{sid_str}** — {preview}")
+            messages.append(
+                {"role": "assistant", "content": answer, "sources": sources}
+            )
 
-st.session_state.messages = messages
+    st.session_state.messages = messages
+    # NOTE: st.rerun() (Streamlit >= 1.27) replaced st.experimental_rerun() which
+    # was removed in Streamlit >= 1.33. Do not call rerun here — appending to
+    # session state already triggers a fresh run.

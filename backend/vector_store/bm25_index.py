@@ -89,15 +89,17 @@ class BM25Index:
 
     @staticmethod
     def _stream_from_chroma(store: ChromaStore) -> tuple[list[str], list[str], list[dict[str, Any]]]:
-        """Chroma has no streaming API; for a take-home corpus, .get() suffices."""
-        import asyncio
+        """Chroma has no streaming API; for a take-home corpus, .get() suffices.
 
+        `coll.get()` is a synchronous, blocking call — no event loop needed.
+        We keep the call shape compatible with both sync and async callers by
+        running it directly. (The previous version wrapped it in
+        `asyncio.run(asyncio.to_thread(...))`, which raises
+        `RuntimeError: asyncio.run() cannot be called from a running event loop`
+        when called from `backend.ingestion.pipeline`'s main coroutine.)
+        """
         coll = store._collection  # type: ignore[attr-defined]
-
-        def _get() -> dict[str, Any]:
-            return coll.get(include=["documents", "metadatas"])
-
-        data = asyncio.run(asyncio.to_thread(_get))
+        data = coll.get(include=["documents", "metadatas"])
         ids = list(data.get("ids", []))
         docs = list(data.get("documents", []) or [])
         metas = list(data.get("metadatas", []) or [])

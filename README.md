@@ -25,6 +25,7 @@ Atlas M0 for durable memory, Tempo + Grafana + Prometheus for traces/metrics).
 7. [Setup instructions](#7-setup-instructions)
 8. [Running the system — step by step](#8-running-the-system--step-by-step)
 9. [Tool calling (with sample `orders.json` and `products.json`)](#9-tool-calling-with-sample-ordersjson-and-productsjson)
+9.5. [MongoDB Atlas — "why don't I see the database?"](#95-mongodb-atlas--why-dont-i-see-the-database)
 10. [API health check & smoke tests](#10-api-health-check--smoke-tests)
 11. [Monitoring — what to look at, where, and why](#11-monitoring--what-to-look-at-where-and-why)
 12. [Error handling — every failure mode covered](#12-error-handling--every-failure-mode-covered)
@@ -41,7 +42,7 @@ Atlas M0 for durable memory, Tempo + Grafana + Prometheus for traces/metrics).
 | **LLM provider** | Ollama Cloud (OpenAI-compatible) | Self-hosted Ollama, OpenAI, Anthropic | OpenAI SDK drop-in, free tier covers an interview-grade demo, swappable model name keeps the same code path for any future migration. Self-hosted Ollama was rejected because it would force hardcoded IPs/ports into the demo and pull reviewer time into infra setup. |
 | **Primary chat model** | `qwen3.5:122b-cloud` | `gpt-oss:120b-cloud` | 122B parameters still hits “smart” answers for tool-calling extraction; falls back to `gpt-oss:120b-cloud` automatically on 429/timeout. Both are free on Ollama Cloud. |
 | **Embedding model** | `BAAI/bge-small-en-v1.5` via HF Inference | `all-MiniLM-L6-v2`, OpenAI `text-embedding-3-small` | `bge-small` is the de-facto MTEB leader for ≤ 100 MB embedders; HF free tier; cosine-normalized so dot-product recall on ChromaDB stays sharp. |
-| **Reranker** | `BAAI/bge-reranker-base` | `ms-marco-MiniLM-L-12`, `cross-encoder/ms-marco-electra` | Strongest CPU-runnable reranker in the HF free tier; collapses irrelevant FAQ hits reliably. |
+| **Reranker** | Local cosine over `all-MiniLM-L6-v2` (ChromaDB's bundled ONNX) | `bge-reranker-base`, `ms-marco-MiniLM-L-12`, `cross-encoder/ms-marco-electra` | Same vector space as the dense retriever, zero HF calls, no torch required. HF router 404s on cross-encoder models; PyTorch-installed cross-encoders hit Windows `WinError 1114`. |
 | **Vector store** | ChromaDB `PersistentClient` (on-disk) | FAISS, Qdrant, Pinecone | Zero-ops, single-file persistence, native cosine support, embeds cleanly with `pysqlite3-binary` for `glibc` mismatch bugs. |
 | **BM25** | `rank_bm25` with pickle cache | Elasticsearch, OpenSearch | A 50-document FAQ is too small for an Elastic cluster; `rank_bm25` keeps the BM25 result path fully local and reproducible. |
 | **Memory store** | MongoDB Atlas M0 (with in-proc fallback) | Redis, SQLite | Atlas M0 is genuinely free; the in-process `deque` fallback lets demos run with zero secrets, and slowapi keys off `session_id`, not IP. |
@@ -79,7 +80,7 @@ flowchart LR
         T1[1. Tool intent<br/>JSON router]
         R[2. Retrieve<br/>ChromaDB cosine]
         BM[3. BM25 fallback]
-        RR[4. Rerank<br/>bge-reranker-base]
+        RR[4. Rerank<br/>local cosine<br/>MiniLM-L6-v2]
         G[5. Gate<br/>confidence threshold]
         T2[6. Tool execution<br/>order_status / product_search]
         P[7. Prompt build<br/>system + memory + ctx + tool]
@@ -90,7 +91,8 @@ flowchart LR
 
     subgraph External[External Services]
         OLL[(Ollama Cloud<br/>qwen3.5 / gpt-oss)]
-        HF[(HF Inference<br/>bge-small embed<br/>bge-reranker-base<br/>granite-docling-258M)]
+        HF[(HF Inference<br/>bge-small
+embed<br/>granite-docling-258M)]  
         CH[(ChromaDB<br/>persistent on-disk)]
         MG[(Mongo Atlas M0<br/>session history)]
         TP[(Tempo :4318<br/>OTLP HTTP)]
@@ -163,7 +165,8 @@ flowchart TD
 3. **Tool execution (early)** — for `order_status` / `product_search`, return
    the structured answer without ever calling the LLM.
 4. **Retrieve** — query Chroma (cosine) → fallback to BM25 on miss → top-K.
-5. **Rerank** — `bge-reranker-base` reorders by cross-encoder score.
+5. **Rerank** — local cosine similarity over ChromaDB's bundled
+   `all-MiniLM-L6-v2` embedder reorders candidates (no HF call, no torch).
 6. **Gate** — confidence threshold: if reranker scores are all below τ, fall
    back to “general” prompt instead of fabricating.
 7. **Prompt build** — system + safety tail + memory + retrieved context + user.
@@ -183,7 +186,7 @@ Every stage emits an OTel span and a `STAGE_LATENCY` Prometheus timer.
 | Chat (primary) | **`qwen3.5:122b-cloud`** | 122B params with strong tool-calling extraction; free on Ollama Cloud; OpenAI-compatible transport. | `gpt-oss:120b-cloud` is used as fallback because it's slightly weaker at strict JSON tool outputs. |
 | Chat (fallback) | **`gpt-oss:120b-cloud`** | Still free; identical transport; provides graceful degradation when the primary errors. | Self-hosted Ollama is rejected because it would lock the demo to one machine. |
 | Embeddings | **`BAAI/bge-small-en-v1.5`** | Top of MTEB leaderboard under 100 MB; HF Inference free tier; cosine-tuned. | `all-MiniLM-L6-v2` was benchmarked lower on this FAQ; OpenAI embeddings were rejected on cost + secret requirement. |
-| Reranker | **`BAAI/bge-reranker-base`** | Strongest CPU cross-encoder on the free tier; collapses irrelevant hits reliably. | LLM-based rerank was rejected on cost; `MiniLM-L-12` reranker loses ~5% accuracy on FAQ paraphrase. |
+| Reranker | **Local cosine over `all-MiniLM-L6-v2`** (ChromaDB bundled ONNX) | Same vector space as the dense retriever, no HF call, no extra dependency. The HF router does not serve `BAAI/bge-reranker-base` through `/v1/rerank` — it 404s — and PyTorch-installed cross-encoders hit `WinError 1114` on Windows. | A real cross-encoder would be stronger on paraphrase but costs a torch dependency; current implementation trades a small slice of reranker accuracy for portability and zero-API-key operation. |
 | Vision (figures only) | **`ibm-granite/granite-docling-258M`** | Tuned for figure captioning; small; runs in HF Inference. | LLaVA rejected on size; we use the VLM only for figures, not for whole pages — cheap path. |
 | OCR | **`rapidocr-onnxruntime`** | On-device, no rate limits; covers PDFs Docling can't read. | Tesseract is heavier and gives worse Asian-text accuracy. |
 
@@ -302,7 +305,7 @@ d:\Mini_AI_Assistant\
 ### 7.1 Bare-metal setup
 
 ```powershell
-cd d:\Mini_AI_Assistant
+cd \Mini_AI_Assistant
 Copy-Item .env.example .env -Force
 # Edit .env and fill:
 #   OLLAMA_API_KEY, HF_TOKEN (required)
@@ -312,16 +315,16 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# Seed vector store from data/faq.json (one time)
-python -m backend.ingest.seed
+# Seed vector store from data/ (one time — walks for *.pdf, *.txt, *.md)
+python -m backend.ingestion.pipeline
 ```
 
 ### 7.2 Docker setup
 
 ```powershell
-cd Mini_AI_Assistant
+cd \Mini_AI_Assistant
 Copy-Item .env.example .env -Force
-# Fill OLLAMA_API_KEY and HF_TOKEN
+# Fill OLLAMA_CLOUD_API_KEY and HF_INFERENCE_API_KEY
 
 # API + UI
 docker compose up -d --build
@@ -347,37 +350,90 @@ docker compose --profile obs up -d
 
 ## 8. Running the system — step by step
 
-### 8.1 Bare-metal (Windows PowerShell)
+### 8.1 Bare-metal (Windows PowerShell) — verified end-to-end
+
+Open **four** PowerShell windows from `D:\Mini_AI_Assistant`. Each
+window needs `.venv` activated because the system Python does not have
+`chromadb`, `fastapi`, `streamlit`, etc.
 
 ```powershell
-# Step 1 — clone and enter
-cd d:\Mini_AI_Assistant
-
-# Step 2 — environment
+# Terminal 0 — one-time setup
+cd D:\Mini_AI_Assistant
 Copy-Item .env.example .env -Force
-notepad .env   # set OLLAMA_API_KEY and HF_TOKEN, save
+# Open .env and set at minimum:
+#   OLLAMA_CLOUD_API_KEY   (free tier at https://ollama.com)
+#   HF_INFERENCE_API_KEY   (free tier at https://huggingface.co/settings/tokens)
+# MongoDB Atlas and OTLP endpoint are optional — see §9.5 and §11.5.
+notepad .env
 
-# Step 3 — venv
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1     # (.venv) appears in the prompt
 pip install -r requirements.txt
 
-# Step 4 — seed vector store (one-time)
-python -m backend.ingest.seed
-
-# Step 5 — API (terminal A)
-uvicorn backend.api.app:app --host 0.0.0.0 --port 8000 --reload
-
-# Step 6 — UI (terminal B)
-streamlit run ui/app.py --server.port 8501
-
-# Step 7 — open
-start http://localhost:8501
-
-# Step 8 — health check
-Invoke-RestMethod http://localhost:8000/healthz | Format-List
-Invoke-RestMethod http://localhost:8000/metrics | Select-String "mini_" -First 10
+# Seed the vector store from data/ (one-time; walks *.pdf, *.txt, *.md).
+# First run downloads ChromaDB's ONNX embedder (~80 MB) and indexes files
+# under .\.chroma\. Re-running is idempotent.
+python -m backend.ingestion.pipeline
 ```
+
+```powershell
+# Terminal 1 — API (keep this running; everything else depends on it)
+cd D:\Mini_AI_Assistant
+.\.venv\Scripts\Activate.ps1
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+# Wait for: "INFO:     Application startup complete."
+```
+
+```powershell
+# Terminal 2 — Streamlit UI
+cd D:\Mini_AI_Assistant
+.\.venv\Scripts\Activate.ps1
+streamlit run ui\streamlit_app.py --server.port 8501
+# Wait for: "You can now view your Streamlit app in your browser."
+```
+
+```powershell
+# Terminal 3 — health checks (no venv needed; uses just curl/Invoke-RestMethod)
+
+# Health (cached 10 s)
+Invoke-RestMethod http://localhost:8000/healthz | Format-List
+
+# All Prometheus metrics (text format)
+Invoke-RestMethod http://localhost:8000/metrics
+
+# Filter to just the lines you care about.
+# NOTE: PowerShell's Select-String does NOT support -First, so pipe through
+# Select-Object. This is the verified working form.
+(Invoke-WebRequest http://localhost:8000/metrics).Content |
+    Select-String -Pattern "^(http_|request_|tool_|answerability_|retrieval_|rerank_|prompt_injection|health_|ingest_)" |
+    Select-Object -First 30
+
+# Exercise the API to populate /metrics counters
+curl.exe -X POST http://localhost:8000/chat `
+     -H "Content-Type: application/json" `
+     -d '{"session_id":"smoke","message":"hello"}'
+
+# Re-check that counters moved
+(Invoke-WebRequest http://localhost:8000/metrics).Content |
+    Select-String -Pattern "http_requests_total|stage_latency|tool_calls" |
+    Select-Object -First 10
+
+# Open the UI
+start http://localhost:8501
+```
+
+#### Why four terminals?
+
+| Terminal | Process | Why separate |
+|---|---|---|
+| 0 (one-shot) | `pip install`, `python -m backend.ingestion.pipeline` | Exit when done |
+| 1 | `uvicorn main:app --reload` | Long-running; reloads on code changes |
+| 2 | `streamlit run` | Long-running; independent of API reload |
+| 3 | `Invoke-RestMethod`, `curl.exe` | Interactive probes; safe to kill |
+
+If you only want **two** windows, use
+[Windows Terminal](https://aka.ms/windowsterminal) and split panes — each
+pane is its own shell, so `.venv` activation is per-pane.
 
 ### 8.2 Docker (no obs stack)
 
@@ -498,6 +554,81 @@ runs anyway — the worst case is one extra vector call, never a wrong tool.
 
 ---
 
+## 9.5 MongoDB Atlas — "why don't I see the database?"
+
+If `/healthz` shows `mongo: down` and the API logs print
+`No replica set members match selector "Primary()" ... SSL handshake failed`,
+read this. Two separate issues usually explain it.
+
+### A. The Atlas free-tier cluster IS NOT sharded — drop `replicaSet=` from the URI
+
+`M0` and `M2` Atlas clusters are **3-node replica sets**, not shards. Your
+default `mongodb+srv://...` connection string can include a query string
+like `?replicaSet=atlas-xxx-shard-0&readPreference=primary` from older
+documentation — that doesn't apply to free tier. **Use exactly:**
+
+```
+MONGODB_URI=mongodb+srv://USER:PASS@cluster0.6x4axib.mongodb.net/mini_ai?appName=mini-ai
+```
+
+No `replicaSet=`, no `readPreference=`. The `+srv` resolver discovers the
+real primary automatically. If you copied the SRV string from a tutorial
+that included `replicaSet=`, that's why the driver only ever sees one
+secondary (`RSSecondary` on `shard-00`) and the SSL handshake to the other
+shards fails.
+
+### B. Atlas won't show the database until something writes to it
+
+Even after the connection is healthy, the database `mini_ai` won't appear
+under **Database Deployments → Browse Collections** until the first write
+succeeds. The Memory store only writes when:
+
+1. You call `POST /chat` and the chat pipeline appends a turn, **and**
+2. The connection is actually `up` (see §A above).
+
+So the chicken-and-egg: you'll see `mini_ai` after your first successful
+chat, not after the server starts. To force a write for verification:
+
+```powershell
+# 1. Confirm the URI in .env has no replicaSet= query parameter
+Select-String -Path .\.env -Pattern "MONGODB_URI"
+
+# 2. Restart the API, then send one chat
+Invoke-RestMethod -Uri "http://localhost:8000/healthz" | Format-List
+# ^ mongo should now report "up"
+
+curl.exe -X POST http://localhost:8000/chat/ `
+     -H "Content-Type: application/json" `
+     -d '{"session_id":"atlas-test","message":"hello"}'
+
+# 3. Refresh https://cloud.mongodb.com → Browse Collections — `mini_ai` /
+#    `messages` should now appear.
+```
+
+### C. "Current IP Address not added" — IP allowlist
+
+You saw `Current IP Address (160.250.240.220/32) added!` in the
+screenshot — that's confirmation that Atlas accepted the add. But if your
+ISP rotates your IP (most residential connections do every 24–48 h) the
+connection will start failing again. The simplest fix is `0.0.0.0/0`
+(allow access from anywhere) for development; tighten before production.
+
+### D. Mongo is genuinely optional
+
+`backend/memory.py` already has an **in-memory fallback** when Mongo is
+unreachable — your chats still work, just without cross-session persistence.
+You can leave `MONGODB_URI` unset (or pointing at a dead cluster) and the
+app keeps running:
+
+```
+mongo=down  →  "mongo_unavailable_using_memory_fallback" log line
+              + every chat still completes
+```
+
+This is by design — it keeps local development friction-free.
+
+---
+
 ## 10. API health check & smoke tests
 
 ### 10.1 `/healthz`
@@ -579,14 +710,34 @@ pipeline. The online suite additionally pings the LLM and HF.
 
 ### 11.1 The four windows
 
-| Window | URL | What it tells you |
-|---|---|---|
-| **Logs** | `/app/logs/app.log` on the container, `./logs/app.log` on bare metal | PII-free JSON per event; `event=chat_completed`, `otel_export_failed`, `injection_flagged`, etc. One `jq -c '.event'` line tells you what’s happening. |
-| **Metrics** | `http://localhost:8000/metrics` and `http://localhost:9090` | Latency per stage (`mini_stage_latency_seconds`), error totals, fallback counts, RAG retrieval rates — enough to alert on. |
-| **Traces** | Grafana → Explore → Tempo | Every chat is a tree: `chat.request → chat.retrieve_rerank → chat.llm → chat.memory_append_assistant`. Spans carry `session.id`, `llm.model`, `gate.score`. |
-| **Health** | `http://localhost:8000/healthz` | Component status with 10 s caching; cheap to monitor. |
+| Window | URL | What it tells you | Works without Docker? |
+|---|---|---|---|
+| **Logs** | `./logs/app.log` (bare-metal) or `/app/logs/app.log` (container) | PII-free JSON per event; `event=chat_completed`, `otel_export_failed`, `injection_flagged`, etc. One `jq -c '.event'` line tells you what's happening. | **Yes** — always on |
+| **Metrics** | `http://localhost:8000/metrics` (Prometheus format) | Counters + histograms: `http_requests_total`, `request_stage_seconds`, `answerability_decisions_total`, `tool_calls_total`, `retrieval_topk_scores`, `prompt_injection_total`, `health_status`. Enough to alert on. | **Yes** — always on, zero setup |
+| **Traces** | Grafana → Explore → Tempo, or hosted backend (see §11.5) | Every chat is a tree: `chat.request → chat.retrieve_rerank → chat.llm → chat.memory_append_assistant`. Spans carry `session.id`, `llm.model`, `gate.score`. | **Optional** — only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set |
+| **Health** | `http://localhost:8000/healthz` | Component status with 10 s caching; cheap to monitor. | **Yes** — always on |
 
-### 11.2 Grafana dashboards
+### 11.2 Built-in metrics — verify locally without any extra services
+
+```powershell
+# Health (cached 10 s)
+Invoke-RestMethod http://localhost:8000/healthz | Format-List
+
+# All metrics, in Prometheus text format
+Invoke-RestMethod http://localhost:8000/metrics
+
+# Just the ones you care about.
+# PowerShell's Select-String does NOT support -First, so pipe through Select-Object:
+(Invoke-WebRequest http://localhost:8000/metrics).Content |
+    Select-String -Pattern "^(http_|request_|tool_|answerability_|retrieval_|rerank_|prompt_injection|health_|ingest_)" |
+    Select-Object -First 30
+```
+
+If you see counters like `http_requests_total{endpoint="/chat",status="200"} 7`
+climbing as you chat, the app is fully instrumented. **No Prometheus server,
+no Grafana, no Docker required** — `prometheus_client` exposes this directly.
+
+### 11.3 Grafana dashboards (full stack)
 
 `ops/grafana/provisioning/dashboards.yaml` declares the file provider; put
 JSON dashboards under `ops/grafana/dashboards/`. The pre-built panels to
@@ -597,22 +748,53 @@ include (drop these in `ops/grafana/dashboards/mini-ai.json`):
 * **Tool short-circuit ratio** — `rate(mini_chat_tool_calls_total[5m]) / rate(mini_chat_requests_total[5m])`.
 * **LLM fallback events** — `increase(mini_chat_llm_fallback_total[1h])`.
 
-### 11.3 PromQL you can save as alerts
+### 11.4 PromQL you can save as alerts
 
 ```promql
 # LLM latency p95 > 10 s for 5 m
 histogram_quantile(0.95,
-  sum by (le) (rate(mini_stage_latency_seconds_bucket{stage="llm"}[5m]))
+  sum by (le) (rate(request_stage_seconds_bucket{stage="llm"}[5m]))
 ) > 10
 
 # HTTP 429 storm
-rate(mini_ratelimit_blocked_total[5m]) > 1
+rate(rate_limit_hits_total[5m]) > 1
 
 # Trace export failing
-rate(mini_otel_export_failures_total[5m]) > 0
+otel_export_failed_total > 0   # counted via logs; wire a log-based alert
 ```
 
-### 11.4 Why a structlog + OTLP combo?
+### 11.5 Hosted tracing — without running Docker
+
+If you'd rather skip the local Tempo/Grafana containers, point the OTLP
+exporter at a free hosted backend. The app reads **two** env vars:
+
+| Variable | Example | Required? |
+|---|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://api.honeycomb.io` | Yes |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `x-honeycomb-team=YOUR_API_KEY` | Only if your backend requires auth |
+
+**Honeycomb (free tier):**
+```powershell
+# In .env:
+OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io
+OTEL_EXPORTER_OTLP_HEADERS=x-honeycomb-team=abc123def456
+
+# Restart the API — traces start flowing immediately:
+Invoke-RestMethod http://localhost:8000/healthz
+# Visit https://ui.honeycomb.io → pick dataset "mini-ai-assistant"
+```
+
+**Grafana Cloud (free tier):**
+```powershell
+# In .env:
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-prod-us-east-0.grafana.net/otlp
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20<base64-instance:apitoken>
+```
+
+Traces are **disabled by default** — leave `OTEL_EXPORTER_OTLP_ENDPOINT`
+empty and the OTel SDK becomes a true no-op (zero network, zero cost).
+
+### 11.6 Why a structlog + OTLP combo?
 
 * **Logs** — JSON. Easy to grep, easy to ship to Loki/CloudWatch later.
 * **Metrics** — free tier Prometheus aggregation, no SaaS dependency.
@@ -698,7 +880,7 @@ after seeding, your on-disk path is wrong (check `.chroma/` permissions).
     └── data_level0.bin
 ```
 
-If `data_level0.bin` is non-empty after `python -m backend.ingest.seed`,
+If `data_level0.bin` is non-empty after `python -m backend.ingestion.pipeline`,
 Chroma is healthy.
 
 ### 13.5 Direct API test
@@ -760,6 +942,8 @@ LLM_MODEL=qwen3.5:122b-cloud
 LLM_FALLBACK_MODEL=gpt-oss:120b-cloud
 HF_TOKEN=<required>
 HF_EMBED_MODEL=BAAI/bge-small-en-v1.5
+# Reranking is now local (ChromaDB bundled ONNX); HF_RERANK_MODEL is ignored.
+# Set RERANK_DISABLED=true to skip the rerank stage entirely.
 HF_RERANK_MODEL=BAAI/bge-reranker-base
 HF_VISION_MODEL=ibm-granite/granite-docling-258M
 MONGO_URI=                       # leave blank for in-proc memory

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.config import get_settings
-from backend.llm.rerank import HFReranker
+from backend.llm.rerank import make_reranker
 from backend.observability.logging_config import get_logger
 from backend.observability.metrics import RERANK_TOP_SCORE, RETRIEVAL_RESULTS, STAGE_LATENCY
 from backend.vector_store.bm25_index import BM25Index
@@ -88,9 +88,10 @@ async def retrieve(query: str, top_k: int = 8) -> list[Retrieved]:
     if not cand:
         return []
 
+    reranker = make_reranker()
     with STAGE_LATENCY.labels(stage="rerank").time():
         try:
-            scored = await HFReranker().rerank(query, [c.text for c in cand], top_k=top_k)
+            scored = await reranker.rerank(query, [c.text for c in cand], top_k=top_k)
         except Exception as e:  # noqa: BLE001
             log.warning("rerank_failed_skipping", error=str(e))
             scored = []

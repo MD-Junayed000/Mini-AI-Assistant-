@@ -32,7 +32,14 @@ _settings = get_settings()
 limiter = Limiter(
     key_func=_key_func,
     default_limits=[f"{_settings.rate_limit_per_min}/minute"],
-    headers_enabled=True,
+    # headers_enabled=False: slowapi's `_inject_headers` assumes the wrapped
+    # handler returns a `starlette.responses.Response`. Our `/chat` route
+    # returns a plain `dict`; slowapi then raises `Exception: parameter
+    # 'response' must be an instance of starlette.responses.Response` and
+    # the response comes back as 500. The decorator still enforces the
+    # limit and raises RateLimitExceeded; we just skip the X-RateLimit
+    # header injection on non-Response returns.
+    headers_enabled=False,
 )
 
 
