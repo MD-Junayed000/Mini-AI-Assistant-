@@ -87,7 +87,33 @@ async def ingest_file(
     texts = [c.text for c in chunks]
 
     with STAGE_LATENCY.labels(stage="embed_store").time():
-        await store.add_texts(texts=texts, metadatas=metadatas, ids=ids)
+        try:
+            await store.add_texts(texts=texts, metadatas=metadatas, ids=ids)
+        except Exception as e:  # noqa: BLE001
+            # add_texts already attempts self-heal once before raising. If
+            # the upsert still failed it usually means the persistent HNSW
+            # was left half-written by a previous crash AND the worker is
+            # itself still holding mmap'd file handles — quarantining
+            # while we hold those locks would just create a corrupt backup.
+            # Instead, surface a clear "please restart" message so the
+            # operator runs `make recover-chroma` (which stops uvicorn
+            # first) or restarts the app (so the auto-recovery in
+            # ChromaStore.__init__ fires on a fresh process).
+            log.warning("chroma_upsert_unrecoverable_restart_required", error=str(e)[:200])
+            INGEST_DOCUMENTS.labels(
+                source_type=path.suffix.lower(), outcome="chroma_unrecoverable"
+            ).inc()
+            return {
+                "chunks": 0,
+                "backend": backend_used,
+                "fallback_reason": "chroma_restart_required",
+                "error": (
+                    "Chroma index is unrecoverable in this process. "
+                    "Please restart the API server (uvicorn) so it can "
+                    "rebuild the index on startup, or run "
+                    "`make recover-chroma` to quarantine the corrupt directory."
+                ),
+            }
 
     INGEST_DOCUMENTS.labels(source_type=path.suffix.lower(), outcome="ok").inc()
     log.info(
@@ -116,5 +142,48 @@ async def ingest_directory(dir_path: Path) -> int:
     return total
 
 
+async def _cli_run(dir_path: Path) -> int:
+    """Pretty CLI wrapper: prints a per-file report and exits cleanly.
+
+    Returning 0 on success even when every file ended up on the pdfplumber
+    fallback — the previous behaviour exited with code 1 on docling probe
+    failure, which made `python -m backend.ingestion.pipeline` look broken
+    when in fact the fallback succeeded. We only exit non-zero when no
+    supported files were found *or* when every file failed to extract.
+    """
+    if not dir_path.exists():
+        print(f"[ingest] directory not found: {dir_path}")
+        return 1
+    paths: list[Path] = []
+    for ext in ("*.pdf", "*.txt", "*.md"):
+        paths.extend(dir_path.glob(ext))
+    if not paths:
+        print(f"[ingest] no .pdf/.txt/.md files in {dir_path}")
+        return 0
+
+    print(f"[ingest] {len(paths)} file(s) found in {dir_path}")
+    indexed = 0
+    failures = 0
+    for p in sorted(paths):
+        try:
+            result = await ingest_file(p)
+        except Exception as exc:  # noqa: BLE001 — never let the CLI crash on one bad file
+            failures += 1
+            print(f"[ingest] FAIL {p.name}: {exc}")
+            continue
+        chunks = result.get("chunks", 0)
+        backend = result.get("backend", "unknown")
+        reason = result.get("fallback_reason")
+        indexed += chunks
+        suffix = f" — backend={backend}" + (f" (reason={reason})" if reason else "")
+        print(f"[ingest] {p.name}: {chunks} chunk(s){suffix}")
+    BM25Index.rebuild()
+    print(f"[ingest] done: {indexed} chunk(s) indexed across {len(paths)} file(s)")
+    return 0 if failures == 0 else 2
+
+
 if __name__ == "__main__":  # pragma: no cover
-    asyncio.run(ingest_directory(Path("data")))
+    import sys
+
+    target = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data")
+    raise SystemExit(asyncio.run(_cli_run(target)))

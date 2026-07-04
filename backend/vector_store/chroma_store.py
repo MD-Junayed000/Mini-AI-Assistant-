@@ -101,6 +101,7 @@ def _install_posthog_stub() -> None:
 from backend.config import get_settings
 from backend.errors import RetrieverError
 from backend.observability.logging_config import get_logger
+from backend.vector_store.recovery import auto_recover_if_corrupt
 
 log = get_logger("chroma")
 
@@ -126,18 +127,73 @@ class ChromaStore:
     def __init__(self, collection: str | None = None) -> None:
         s = get_settings()
         self._collection_name = collection or s.chroma_collection
-        Path(s.chroma_persist_dir).mkdir(parents=True, exist_ok=True)
+        self._persist_dir = Path(s.chroma_persist_dir)
+        # ------------------------------------------------------------------
+        # Auto-recovery: if the persistent directory was left half-written by
+        # a previous crash, the in-process probe would just segfault again.
+        # The recovery helper probes in an isolated subprocess (so a native
+        # crash can't reach us), then moves the corrupt dir aside to
+        # `.bak-<stamp>` and recreates an empty one. The next ingestion
+        # rebuilds the collection from `data/` transparently.
+        # ------------------------------------------------------------------
+        if self._persist_dir.exists():
+            auto_recover_if_corrupt(self._persist_dir)
+        self._persist_dir.mkdir(parents=True, exist_ok=True)
         # Install the posthog stub BEFORE chromadb grabs a reference to it.
         _install_posthog_stub()
         import chromadb
 
-        self._client = chromadb.PersistentClient(path=s.chroma_persist_dir)
+        self._client = chromadb.PersistentClient(path=str(self._persist_dir))
         self._embed_fn = _default_embedding_function()
         self._collection = self._client.get_or_create_collection(
             name=self._collection_name,
             metadata={"hnsw:space": "cosine"},
             embedding_function=self._embed_fn,
         )
+        # Cache whether the collection is healthy. A Windows process that
+        # is killed mid-upsert (or an interrupted previous run) can leave
+        # Chroma's HNSW files half-written; subsequent calls then segfault
+        # inside chromadb's Rust code with no Python-visible exception.
+        # We probe on first use and rebuild if the probe fails.
+        self._verified_ok = False
+
+    def _recreate_collection(self) -> None:
+        """Drop and recreate the collection. Loses data — used as a last
+        resort when the persistent HNSW is unrecoverable."""
+        try:
+            self._client.delete_collection(self._collection_name)
+        except Exception:  # noqa: BLE001 — collection may not exist
+            pass
+        self._collection = self._client.get_or_create_collection(
+            name=self._collection_name,
+            metadata={"hnsw:space": "cosine"},
+            embedding_function=self._embed_fn,
+        )
+
+    def _self_heal(self) -> bool:
+        """Detect and recover from a corrupt HNSW index.
+
+        Returns True if the collection is healthy afterwards. False means
+        we couldn't make it usable — callers should surface a 503.
+        """
+        if self._verified_ok:
+            return True
+        try:
+            # A trivial query exercises the same HNSW read path that
+            # `upsert` will use for its write path. If this raises, the
+            # collection is broken.
+            self._collection.query(query_texts=["__healthcheck__"], n_results=1)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("chroma_collection_unhealthy_rebuilding", error=str(exc))
+            try:
+                self._recreate_collection()
+                self._verified_ok = True
+                return True
+            except Exception as e2:  # noqa: BLE001
+                log.error("chroma_recreate_failed", error=str(e2))
+                return False
+        self._verified_ok = True
+        return True
 
     async def add_texts(
         self,
@@ -163,7 +219,22 @@ class ChromaStore:
                 metadatas=metadatas,
             )
 
-        await asyncio.to_thread(_add)
+        # If we know the collection is broken, heal before touching it.
+        if not self._verified_ok and not self._self_heal():
+            raise RetrieverError("chroma_collection_unrecoverable")
+        try:
+            await asyncio.to_thread(_add)
+        except Exception as e:  # noqa: BLE001
+            # A *catchable* failure here usually means a transient issue
+            # (lock contention, corrupt index we hadn't detected). Reset
+            # the verified flag so the next call re-probes — and try
+            # once more after a self-heal rebuild.
+            log.warning("chroma_upsert_failed_attempting_heal", error=str(e))
+            self._verified_ok = False
+            if self._self_heal():
+                await asyncio.to_thread(_add)
+                return
+            raise RetrieverError(str(e)) from e
 
     async def query(self, text: str, top_k: int = 8) -> list[Hit]:
         if not text.strip():

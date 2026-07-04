@@ -8,6 +8,7 @@ PIP    ?= $(PY) -m pip
 PORT   ?= 8000
 
 .PHONY: help install install-dev run api ui test test-offline lint fmt \
+        recover-chroma \
         docker-build docker-up docker-down docker-logs clean
 
 help:  ## Show this help.
@@ -70,3 +71,5 @@ docker-logs:  ## Tail compose logs.
 clean:  ## Remove caches, bytecode, and local artefacts.
 	rm -rf .pytest_cache .ruff_cache .mypy_cache __pycache__ */__pycache__
 	find . -name '*.pyc' -delete
+recover-chroma:  ## Quarantine a corrupt .chroma/ (stops uvicorn, moves dir aside).
+        powershell -ExecutionPolicy Bypass -File scripts\recover_chroma.ps1

@@ -111,12 +111,19 @@ async def ingest(file: UploadFile = File(...)) -> dict:
     result = await ingest_file(dest)
     # Rebuild BM25 after every ingest (small corpus, cheap).
     BM25Index.rebuild()
-    return {
+    body = {
         "chunks": result.get("chunks", 0),
         "source": file.filename,
         "backend": result.get("backend", "unknown"),
         "fallback_reason": result.get("fallback_reason"),
     }
+    # Surface a one-line error string when extraction produced no chunks —
+    # the Streamlit UI uses this to explain why nothing was indexed
+    # (corrupt PDF, empty text, etc.) without a separate toast.
+    err = result.get("error")
+    if err and result.get("chunks", 0) == 0:
+        body["error"] = err
+    return body
 
 
 @router.post("/chat")

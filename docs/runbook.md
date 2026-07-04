@@ -46,6 +46,51 @@ Each section corresponds to one rule in `ops/alerts.yaml`. Read the section
   process wasn't killed for OOM.
 - **Mitigation**: clear `.chroma/` only if a full re-ingest is acceptable.
 
+### Auto-recovery (preferred)
+
+As of v2.3 the FastAPI worker self-heals on the next ingest attempt:
+
+1. `ChromaStore.__init__` runs `auto_recover_if_corrupt(persist_dir)`,
+   which probes chromadb in an **isolated subprocess** (a native crash
+   inside chromadb's Rust HNSW code can never reach the worker).
+2. If the probe fails, the corrupt `.chroma/` is renamed to
+   `.chroma.bak-<UTC-stamp>` (move-aside, never wipe) and a fresh empty
+   directory is created.
+3. The very next `/ingest` call rebuilds the collection and BM25 cache
+   from `data/` automatically — the Streamlit UI shows a clear
+   "Click Upload again to rebuild the index" warning instead of a
+   silent failure.
+4. If the upsert still fails *after* the self-heal, the request is
+   returned with `fallback_reason: "chroma_recovered_retry_ingest"` so
+   the user can retry instead of seeing a 500.
+
+### Manual recovery (when auto-recovery isn't enough)
+
+If the worker can't even start — usually because a previous crash
+left file handles locked — run from the project root:
+
+```
+make recover-chroma
+```
+
+or directly:
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\recover_chroma.ps1
+```
+
+This script:
+
+- stops any running `uvicorn` (so chromadb releases its mmap'd files),
+- renames `.chroma/` → `.chroma.bak-<UTC-stamp>/` (kept on disk for
+  forensics, never wiped),
+- prints the size + file count of the quarantined directory,
+- leaves a fresh empty `.chroma/` for the next ingest.
+
+The next `/ingest` request (or `python -m backend.ingestion.pipeline`)
+rebuilds the collection and BM25 cache from `data/`. No other action
+is required.
+
 ## HealthCheckDegraded
 
 - **Symptom**: `health_status{component="..."} == 0` for 2m.

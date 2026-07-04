@@ -30,6 +30,47 @@ st.set_page_config(
 # Override by setting MINI_AI_API in the environment before `streamlit run`.
 API = os.environ.get("MINI_AI_API", "http://localhost:8000").rstrip("/")
 
+
+# Single shared httpx client. We force `max_keepalive_connections=0` so
+# every request opens a fresh TCP socket — this is the practical fix for
+# WinError 10054 on Windows, where idle keep-alive sockets from the pool
+# get reset by the OS between Streamlit reruns. The Connection: close
+# request header alone doesn't help: it only tells the server to close
+# after the response, it doesn't prevent httpx from picking up a dead
+# socket from its pool for the *next* request.
+_http_limits = httpx.Limits(
+    max_keepalive_connections=0,
+    max_connections=4,
+    keepalive_expiry=1.0,
+)
+_http_transport = httpx.HTTPTransport(
+    limits=_http_limits,
+    retries=2,
+)
+HTTP = httpx.Client(
+    transport=_http_transport,
+    timeout=httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0),
+)
+
+
+def _post_with_retry(url: str, *, files: dict, headers: dict | None = None) -> httpx.Response:
+    """POST a multipart upload with one retry on Windows connection drops.
+
+    The Streamlit reruns happen dozens of times per minute; on Windows
+    the underlying socket occasionally dies between reruns. Two attempts
+    is plenty for an interactive upload button.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return HTTP.post(url, files=files, headers=headers)
+        except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadError) as exc:
+            last_exc = exc
+            continue
+    # Re-raise the last connection-class error so the caller can render it.
+    assert last_exc is not None
+    raise last_exc
+
 # Role avatars. `st.chat_message` only accepts an emoji, an image URL, or
 # `None` (the Streamlit default). Plain letters like "U" / "A" are treated
 # as image paths and raise `StreamlitAPIException: Failed to load the
@@ -94,13 +135,13 @@ def switch_chat(sid: str) -> None:
     if bucket:
         return
     try:
-        with httpx.Client(timeout=10) as cx:
-            r = cx.get(
-                f"{API}/session/{sid}/messages",
-                headers={"Connection": "close"},
-            )
-            r.raise_for_status()
-            data = r.json()
+        r = HTTP.get(
+            f"{API}/session/{sid}/messages",
+            headers={"Connection": "close"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
     except httpx.HTTPError:
         return  # server unreachable / session gone; nothing to hydrate
     server_msgs = data.get("messages") or []
@@ -135,8 +176,7 @@ def delete_chat(sid: str) -> None:
     remaining chat (or roll a brand new one if there are no others left).
     """
     try:
-        with httpx.Client(timeout=10) as cx:
-            cx.post(f"{API}/session/{sid}/delete").raise_for_status()
+        HTTP.post(f"{API}/session/{sid}/delete", timeout=10).raise_for_status()
     except httpx.HTTPError:
         # Even if the server-side purge fails, still drop the local cache so
         # the UI stays consistent with what the user asked for.
@@ -168,10 +208,11 @@ def rename_chat(sid: str, new_title: str) -> None:
     if not new_title:
         return
     try:
-        with httpx.Client(timeout=10) as cx:
-            cx.post(
-                f"{API}/session/{sid}/rename", json={"title": new_title}
-            ).raise_for_status()
+        HTTP.post(
+            f"{API}/session/{sid}/rename",
+            json={"title": new_title},
+            timeout=10,
+        ).raise_for_status()
     except httpx.HTTPError:
         pass
     _ensure_titles()[sid] = new_title
@@ -181,13 +222,13 @@ def _fetch_sessions() -> list[dict[str, Any]]:
     """Pull the server's session list (newest first). Falls back to local
     session ids if the server is unreachable so the sidebar still works."""
     try:
-        with httpx.Client(timeout=5) as cx:
-            r = cx.get(
-                f"{API}/sessions",
-                headers={"Connection": "close"},
-            )
-            r.raise_for_status()
-            return r.json().get("sessions", []) or []
+        r = HTTP.get(
+            f"{API}/sessions",
+            headers={"Connection": "close"},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return r.json().get("sessions", []) or []
     except httpx.HTTPError:
         chat_store: dict[str, list[dict[str, Any]]] = st.session_state.get(
             "chat_store", {}
@@ -224,13 +265,13 @@ def _active_label(sessions: list[dict[str, Any]], sid: str) -> str:
 @st.cache_data(ttl=10, show_spinner=False)
 def _health() -> dict[str, Any]:
     try:
-        with httpx.Client(timeout=4) as cx:
-            r = cx.get(
-                f"{API}/healthz",
-                headers={"Connection": "close"},
-            )
-            r.raise_for_status()
-            return r.json()
+        r = HTTP.get(
+            f"{API}/healthz",
+            headers={"Connection": "close"},
+            timeout=4,
+        )
+        r.raise_for_status()
+        return r.json()
     except Exception as exc:  # noqa: BLE001
         return {"overall": "down", "components": {}, "error": str(exc)}
 
@@ -257,28 +298,58 @@ with st.sidebar:
         if st.button("Upload to knowledge base", use_container_width=True):
             with st.spinner("Indexing document..."):
                 # Read the upload into a bytes buffer once, then post it on a
-                # fresh connection that closes after the response. This avoids
-                # the WinError 10054 that hits Windows when httpx reuses a
-                # stale keep-alive socket to ship a multi-megabyte body.
+                # fresh TCP socket (see `_http_limits` above) with up to two
+                # connection-level retries for the WinError 10054 cases that
+                # hit Windows when Streamlit re-renders the sidebar many
+                # times per minute.
                 file_bytes = uploaded.getvalue()
+                files = {
+                    "file": (
+                        uploaded.name,
+                        file_bytes,
+                        uploaded.type or "application/octet-stream",
+                    )
+                }
                 try:
-                    with httpx.Client(timeout=300) as cx:
-                        r = cx.post(
-                            f"{API}/ingest",
-                            headers={"Connection": "close"},
-                            files={
-                                "file": (
-                                    uploaded.name,
-                                    file_bytes,
-                                    uploaded.type or "application/octet-stream",
-                                )
-                            },
-                        )
-                        r.raise_for_status()
-                        body = r.json()
-                        chunks = body.get("chunks", 0)
-                        backend = body.get("backend", "docling")
-                        reason = body.get("fallback_reason")
+                    r = _post_with_retry(
+                        f"{API}/ingest",
+                        files=files,
+                        headers={"Connection": "close"},
+                    )
+                    r.raise_for_status()
+                    body = r.json()
+                    chunks = body.get("chunks", 0)
+                    backend = body.get("backend", "docling")
+                    reason = body.get("fallback_reason")
+                    detail = body.get("error")
+                    if chunks == 0:
+                        # Surface the failure cleanly: bad file, empty doc,
+                        # or a backend that couldn't parse anything.
+                        why = detail or reason or "no text could be extracted"
+                        # Two restart-needed paths use the same UI message:
+                        #   - chroma_recovered_retry_ingest: the server
+                        #     quarantined a corrupt index on startup and
+                        #     this request rebuilds it transparently. The
+                        #     next click on Upload is what *indexes* the
+                        #     file — explain that.
+                        #   - chroma_restart_required: the in-process
+                        #     self-heal could not finish (this worker is
+                        #     still holding file handles). The operator
+                        #     needs to restart uvicorn or run
+                        #     `make recover-chroma`.
+                        if reason in ("chroma_recovered_retry_ingest", "chroma_restart_required"):
+                            st.warning(
+                                f"⚠ Chroma index needed a rebuild. "
+                                f"Click **Upload** again to index "
+                                f"{uploaded.name}; if it still fails, "
+                                f"restart the API server or run "
+                                f"`make recover-chroma`."
+                            )
+                        else:
+                            st.error(
+                                f"Couldn't index {uploaded.name}: {why}"
+                            )
+                    else:
                         msg = f"Indexed {chunks} chunks from {uploaded.name}"
                         if backend != "docling" and reason:
                             msg += (
@@ -454,13 +525,13 @@ if prompt:
         t0 = time.perf_counter()
         status = placeholder.caption("🟡 requesting… 0.0 s")
         try:
-            with httpx.Client(timeout=120) as cx:
-                r = cx.post(
-                    f"{API}/chat",
-                    json={"session_id": active_sid, "message": prompt},
-                )
-                r.raise_for_status()
-                data = r.json()
+            r = HTTP.post(
+                f"{API}/chat",
+                json={"session_id": active_sid, "message": prompt},
+                timeout=120,
+            )
+            r.raise_for_status()
+            data = r.json()
         except httpx.HTTPStatusError as exc:
             try:
                 data = exc.response.json()
