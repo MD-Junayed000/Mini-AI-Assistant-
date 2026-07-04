@@ -471,7 +471,10 @@ Get-Process python `
 Get-NetTCPConnection -LocalPort 8000 -State Listen `
   | Select-Object LocalAddress, LocalPort, OwningProcess
 ```
-
+**Then stop that PID:**
+```
+Stop-Process -Id XXXXX -Force
+```
 **Clean restart (recommended over `--reload` on Windows):**
 
 ```powershell

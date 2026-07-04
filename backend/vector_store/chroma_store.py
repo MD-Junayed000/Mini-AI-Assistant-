@@ -21,6 +21,7 @@ for code that needs explicit vectors (reranking, custom pipelines).
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -47,6 +48,32 @@ from typing import Any
 # ---------------------------------------------------------------------------
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 os.environ.setdefault("CHROMA_TELEMETRY_DISABLED", "True")
+
+
+# ---------------------------------------------------------------------------
+# Silence ChromaDB's "Add of existing embedding ID" warning.
+#
+# Background:
+#   - `chromadb.segment.impl.vector.local_persistent_hnsw` emits a
+#     `WARNING` for every id we upsert that already exists. The upsert
+#     succeeds — this is purely informational — but the warning floods
+#     the logs every time `python -m backend.ingestion.pipeline` runs
+#     against an already-populated collection.
+#   - We want to drop *only* this specific record; everything else from
+#     chromadb (real errors, query failures) must still surface.
+#
+# Installing the filter here means it takes effect on the first chromadb
+# import, regardless of which entry point imports this module first
+# (server startup, the ingestion CLI, or a test).
+# ---------------------------------------------------------------------------
+class _ChromaExistingIDFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "Add of existing embedding ID" not in record.getMessage()
+
+
+logging.getLogger(
+    "chromadb.segment.impl.vector.local_persistent_hnsw"
+).addFilter(_ChromaExistingIDFilter())
 
 
 def _install_posthog_stub() -> None:
@@ -123,7 +150,14 @@ class ChromaStore:
             return
 
         def _add() -> None:
-            self._collection.add(
+            # Make ingestion idempotent. The pipeline assigns deterministic
+            # IDs like "{stem}::chunk::{i}", so re-running `ingest_file` on
+            # the same source would otherwise raise
+            # `Add of existing embedding ID` from ChromaDB. The public
+            # `Collection.upsert(...)` API is the documented atomic way to
+            # "insert if missing, replace if present" — cleaner and faster
+            # than delete-then-add.
+            self._collection.upsert(
                 ids=ids,
                 documents=texts,
                 metadatas=metadatas,

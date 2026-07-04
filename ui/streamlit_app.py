@@ -29,9 +29,13 @@ st.set_page_config(
 import os
 API = os.environ.get("MINI_AI_API", "http://localhost:8000").rstrip("/")
 
-# Simple, non-emoji role avatars. Avoid decorative icons.
-_USER_AVATAR = "U"
-_ASSISTANT_AVATAR = "A"
+# Role avatars. `st.chat_message` only accepts an emoji, an image URL, or
+# `None` (the Streamlit default). Plain letters like "U" / "A" are treated
+# as image paths and raise `StreamlitAPIException: Failed to load the
+# provided avatar value as an image.`, so we let Streamlit pick its own
+# default avatar per role.
+_USER_AVATAR = None
+_ASSISTANT_AVATAR = None
 
 
 # ---- Session state helpers -------------------------------------------------
