@@ -31,7 +31,9 @@ def _load_json(name: str) -> Any:
     # Fallback: relative to cwd
     if not path.exists():
         path = Path("data") / name
-    return json.loads(path.read_text(encoding="utf-8"))
+    # utf-8-sig transparently strips a leading BOM if present (some Windows
+    # editors — notably Notepad and certain VS Code encodings — save with one).
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def _maybe_reload(key: str, filename: str) -> Any:

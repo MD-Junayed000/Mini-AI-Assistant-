@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     # --- LLM ---------------------------------------------------------------
     ollama_cloud_base_url: str = "https://ollama.com/v1"
     ollama_cloud_api_key: str = "your-ollama-cloud-key"
-    ollama_primary_model: str = "qwen3.5:122b-cloud"
-    ollama_fallback_model: str = "gpt-oss:120b-cloud"
+    ollama_primary_model: str = "gpt-oss:20b"
+    ollama_fallback_model: str = "gpt-oss:120b"
     ollama_timeout_seconds: int = 30
 
     # --- Embeddings --------------------------------------------------------

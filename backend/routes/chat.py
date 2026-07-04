@@ -71,6 +71,24 @@ async def _track_http(request: Request, call_next):  # type: ignore[no-untyped-d
 
 
 # ---------- Routes -------------------------------------------------------
+@router.get("/")
+async def root() -> dict:
+    """Friendly landing — the UI lives at the Streamlit port (default 8501)."""
+    return {
+        "service": "Mini AI Assistant",
+        "version": "0.2.2",
+        "ui": "http://localhost:8501 (run `streamlit run ui/streamlit_app.py`)",
+        "endpoints": {
+            "POST /chat": "send a chat message (JSON: {session_id, message})",
+            "POST /ingest": "upload a PDF/TXT/MD document for retrieval",
+            "POST /session/{id}/reset": "clear conversation memory for a session",
+            "GET  /healthz": "component health snapshot (cached 30s)",
+            "GET  /metrics": "Prometheus exposition",
+            "POST /admin/cache/refresh": "rebuild BM25 + reload tool registry",
+        },
+    }
+
+
 @router.post("/ingest")
 async def ingest(file: UploadFile = File(...)) -> dict:
     if not file.filename:
@@ -79,7 +97,7 @@ async def ingest(file: UploadFile = File(...)) -> dict:
     if suffix not in {".pdf", ".txt", ".md"}:
         raise ValidationError(f"unsupported_extension: {suffix}")
 
-    dest = Path("data") / file.filename
+    dest = Path("data") / "uploads" / file.filename
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(await file.read())
 

@@ -1,9 +1,19 @@
 """FastAPI application entrypoint."""
 from __future__ import annotations
 
+import os
+
+# Silence ChromaDB telemetry BEFORE any chromadb import anywhere in the
+# import graph (chroma's __init__ spawns a posthog client at first use and
+# recent posthog releases break chroma's call signature, which floods the
+# log with `capture() takes 1 positional argument but 3 were given`).
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY_DISABLED", "True")
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -53,10 +63,6 @@ def create_app() -> FastAPI:
     async def _ratelimit_handler(request, exc):  # type: ignore[no-untyped-def]
         return await handler(request, exc)
 
-    @app.exception_handler(StarletteHTTPException)
-    async def _http_handler(request, exc):  # type: ignore[no-untyped-def]
-        return await handler(request, exc)
-
     @app.exception_handler(ValidationError)
     async def _val_handler(request, exc):  # type: ignore[no-untyped-def]
         return await handler(request, exc)
@@ -64,6 +70,19 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def _default_handler(request, exc):  # type: ignore[no-untyped-def]
         return await handler(request, exc)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _starlette_http_handler(request, exc: StarletteHTTPException):  # type: ignore[no-untyped-def]
+        """Starlette HTTP errors (404 etc.) — return JSON, never HTML, never 500."""
+        return JSONResponse(
+            {
+                "error": "not_found" if exc.status_code == 404 else "http_error",
+                "code": "not_found" if exc.status_code == 404 else "http_error",
+                "status": exc.status_code,
+                "friendly": "That endpoint doesn't exist. Try GET / for the route catalog.",
+            },
+            status_code=exc.status_code,
+        )
 
     return app
 

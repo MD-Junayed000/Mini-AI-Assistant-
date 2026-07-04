@@ -24,7 +24,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-API = "http://localhost:8000"
+# Hard-coded API endpoint — the user shouldn't need to edit this.
+# Override by setting MINI_AI_API in the environment before `streamlit run`.
+import os
+API = os.environ.get("MINI_AI_API", "http://localhost:8000").rstrip("/")
+
+# Simple, non-emoji role avatars. Avoid decorative icons.
+_USER_AVATAR = "U"
+_ASSISTANT_AVATAR = "A"
 
 
 # ---- Session state helpers -------------------------------------------------
@@ -36,12 +43,16 @@ def _messages() -> list[dict[str, Any]]:
     return st.session_state.setdefault("messages", [])
 
 
-def _reset_conversation(sid: str) -> None:
-    """Tell the API to forget the conversation, then clear local state."""
-    try:
-        httpx.post(f"{API}/session/{sid}/reset", timeout=10).raise_for_status()
-    except httpx.HTTPError as exc:
-        st.toast(f"Session reset failed: {exc}", icon=None)
+def start_new_chat() -> None:
+    """Forget the previous conversation and roll a fresh session id."""
+    old_sid = st.session_state.get("session_id")
+    if old_sid:
+        try:
+            httpx.post(f"{API}/session/{old_sid}/reset", timeout=10).raise_for_status()
+        except httpx.HTTPError:
+            # Network blip is not fatal — the new sid will just not have
+            # history on the server side either way.
+            pass
     st.session_state.messages = []
     st.session_state.session_id = uuid.uuid4().hex[:12]
 
@@ -60,9 +71,14 @@ def _health() -> dict[str, Any]:
 
 # ---- Sidebar ---------------------------------------------------------------
 with st.sidebar:
-    st.markdown("### Configuration")
-    api_base = st.text_input("API base URL", value=API, help="Where uvicorn is listening.")
-    API = api_base.rstrip("/") or API
+    # Prominent "new chat" entry-point at the top.
+    st.button(
+        "+  New chat",
+        use_container_width=True,
+        type="primary",
+        on_click=start_new_chat,
+        help="Forget the current conversation and start over.",
+    )
 
     st.divider()
     st.markdown("### Knowledge Base")
@@ -88,19 +104,18 @@ with st.sidebar:
     st.divider()
     st.markdown("### Session")
     sid = _session_id()
-    st.code(sid, language=None)
-    st.button("Clear conversation", use_container_width=True, on_click=_reset_conversation, args=(sid,))
+    st.caption(f"id: `{sid}`")
 
     st.divider()
     st.markdown("### Status")
     health = _health()
     overall = health.get("overall", "unknown")
     if overall == "up":
-        st.markdown(f"**API:** :green[connected]")
+        st.markdown("**API:** :green[connected]")
     elif overall == "degraded":
-        st.markdown(f"**API:** :orange[degraded]")
+        st.markdown("**API:** :orange[degraded]")
     else:
-        st.markdown(f"**API:** :red[unreachable]")
+        st.markdown("**API:** :red[unreachable]")
     for name, state in (health.get("components") or {}).items():
         glyph = "ok" if state == "up" else "down"
         st.markdown(f"- `{name}`: {glyph}")
@@ -116,7 +131,8 @@ st.caption(
 
 for msg in _messages():
     role = msg.get("role", "assistant")
-    with st.chat_message(role):
+    avatar = _USER_AVATAR if role == "user" else _ASSISTANT_AVATAR
+    with st.chat_message(role, avatar=avatar):
         st.markdown(msg.get("content", ""))
         sources = msg.get("sources") or []
         if sources:
@@ -131,11 +147,11 @@ if prompt:
     sid = _session_id()
     messages = _messages()
 
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar=_USER_AVATAR):
         st.markdown(prompt)
     messages.append({"role": "user", "content": prompt})
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=_ASSISTANT_AVATAR):
         placeholder = st.empty()
         try:
             with httpx.Client(timeout=120) as cx:

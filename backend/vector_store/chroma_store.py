@@ -21,9 +21,55 @@ for code that needs explicit vectors (reranking, custom pipelines).
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# Silence ChromaDB's built-in telemetry BEFORE any chromadb import.
+#
+# Background:
+#   - chromadb ships a posthog-based telemetry sender that fires
+#     ClientStartEvent / ClientCreateCollectionEvent on first use.
+#   - Recent posthog releases changed the `capture()` signature, so chromadb
+#     raises `capture() takes 1 positional argument but 3 were given` on every
+#     event — and prints a stack trace to stdout, drowning our own logs.
+#
+# Defence in depth (each layer catches a different failure mode):
+#   1. Set the env vars chromadb checks for opt-out. Some builds honour
+#      `ANONYMIZED_TELEMETRY=False`, others look for `CHROMA_TELEMETRY_DISABLED`.
+#   2. Pre-register a *shim* `posthog` module so when chromadb does
+#      `import posthog` it gets our stub instead of the real client. This
+#      works because Python's import machinery caches the first match in
+#      `sys.modules`.
+# ---------------------------------------------------------------------------
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY_DISABLED", "True")
+
+
+def _install_posthog_stub() -> None:
+    """Register a no-op `posthog` module before chromadb imports the real one.
+
+    Idempotent and side-effect free: if a real posthog has already been
+    imported for legitimate use elsewhere, we leave it alone.
+    """
+    if "posthog" in sys.modules:
+        return
+    import types
+
+    stub = types.ModuleType("posthog")
+
+    def _noop(*_a, **_kw):  # noqa: ANN001
+        return None
+
+    stub.capture = _noop  # type: ignore[attr-defined]
+    stub.identify = _noop  # type: ignore[attr-defined]
+    stub.flush = _noop  # type: ignore[attr-defined]
+    stub.disable = _noop  # type: ignore[attr-defined]
+    sys.modules["posthog"] = stub
+
 
 from backend.config import get_settings
 from backend.errors import RetrieverError
@@ -54,6 +100,8 @@ class ChromaStore:
         s = get_settings()
         self._collection_name = collection or s.chroma_collection
         Path(s.chroma_persist_dir).mkdir(parents=True, exist_ok=True)
+        # Install the posthog stub BEFORE chromadb grabs a reference to it.
+        _install_posthog_stub()
         import chromadb
 
         self._client = chromadb.PersistentClient(path=s.chroma_persist_dir)

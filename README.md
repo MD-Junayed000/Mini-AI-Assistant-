@@ -370,7 +370,7 @@ canonical entrypoint is **`uvicorn main:app`** from the repo root
 
 ```powershell
 # From repo root
-cd D:\Mini_AI_Assistant
+cd \Mini_AI_Assistant
 
 # 1. Environment file
 Copy-Item .env.example .env -Force
@@ -382,7 +382,7 @@ notepad .env
 
 # 2. Virtualenv + deps
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1     # prompt shows (.venv)
+.\.venv\Scripts\Activate.ps1     
 pip install -r requirements.txt
 ```
 
@@ -511,20 +511,6 @@ start http://localhost:8501         # UI
 start http://localhost:8000/healthz # API
 ```
 
-### 6.11 Useful Make targets
-
-```powershell
-make help              # list all targets
-make install           # pip install -r requirements.txt
-make run               # API + UI together
-make test              # pytest -q
-make test-offline      # no-network tests only
-make docker-build      # build the image
-make docker-up         # docker compose up
-make docker-down       # docker compose down -v
-make docker-logs       # tail api logs
-make clean             # pyc + __pycache__ + .pytest_cache
-```
 
 ---
 

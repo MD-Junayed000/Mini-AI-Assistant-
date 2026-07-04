@@ -1,7 +1,10 @@
 """Ollama Cloud chat client — OpenAI-compatible.
 
-Primary: qwen3.5:122b-cloud. Fallback: gpt-oss:120b-cloud.
+Primary: gpt-oss:20b. Fallback: gpt-oss:120b.
 Both support native tool-calling; we still parse JSON-intent for portability.
+Model names live in `backend.config.Settings` and can be overridden via env
+vars (`OLLAMA_PRIMARY_MODEL` / `OLLAMA_FALLBACK_MODEL`).
+Browse live tags with: curl https://ollama.com/api/tags | jq '.models[].name'
 """
 from __future__ import annotations
 

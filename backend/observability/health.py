@@ -29,6 +29,20 @@ _CACHE_LOCK = asyncio.Lock()
 
 async def _probe_chroma() -> tuple[str, str]:
     try:
+        # Install the posthog stub before chromadb grabs a reference to it.
+        # (Keeps the chroma telemetry spam out of our healthz log.)
+        try:
+            import sys
+            import types
+
+            if "posthog" not in sys.modules:
+                stub = types.ModuleType("posthog")
+                stub.capture = lambda *a, **kw: None  # type: ignore[attr-defined]
+                stub.identify = lambda *a, **kw: None  # type: ignore[attr-defined]
+                sys.modules["posthog"] = stub
+        except Exception:  # noqa: BLE001
+            pass
+
         import chromadb  # noqa: WPS433  (deferred to avoid import-time cost)
 
         client = chromadb.PersistentClient(path=get_settings().chroma_persist_dir)
@@ -40,16 +54,27 @@ async def _probe_chroma() -> tuple[str, str]:
 
 
 async def _probe_ollama() -> tuple[str, str]:
+    """Probe Ollama / Ollama Cloud.
+
+    The OpenAI-compatible endpoint shape (`/v1/models`) is the only path that
+    is reliable across both local Ollama installs and `ollama.com` Cloud:
+    local Ollama mounts it; Ollama Cloud rejects native `/api/tags` and returns
+    404 with an HTML body, which made the previous probe always read `down`
+    (status < 500 → "up" → but with 401 auth failures the metric still drifted).
+    """
     import httpx
 
+    base = get_settings().ollama_cloud_base_url.rstrip("/")
+    url = f"{base}/models" if base.endswith("/v1") else f"{base}/v1/models"
     try:
         async with httpx.AsyncClient(timeout=5.0) as cx:
             r = await cx.get(
-                get_settings().ollama_cloud_base_url.rstrip("/").removesuffix("/v1")
-                + "/api/tags",
+                url,
                 headers={"Authorization": f"Bearer {get_settings().ollama_cloud_api_key}"},
             )
-            return "ollama", "up" if r.status_code < 500 else "down"
+            # 2xx = up. 401/403 = "reachable but auth bad" → still report down
+            # so the operator notices the misconfigured key.
+            return "ollama", "up" if 200 <= r.status_code < 300 else "down"
     except Exception:  # noqa: BLE001
         return "ollama", "down"
 

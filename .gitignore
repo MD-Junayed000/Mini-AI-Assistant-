@@ -23,6 +23,20 @@ build/
 .chroma/
 
 # ---------------------------------------------------------------------------
+# Uploaded documents (PDF / TXT / MD) — written by POST /ingest into ./data,
+# chunked into Chroma, then never re-read at runtime. Ignore the raw files
+# so they don't bloat the repo; keep only the seeded fixtures.
+# ---------------------------------------------------------------------------
+data/uploads/
+data/*.pdf
+data/*.PDF
+data/*.txt
+data/*.md
+!data/faq.json
+!data/orders.json
+!data/products.json
+
+# ---------------------------------------------------------------------------
 # Logs (rotating JSON logs, written by backend/observability/logging_config.py
 # to LOG_DIR, default ./logs)
 # ---------------------------------------------------------------------------
