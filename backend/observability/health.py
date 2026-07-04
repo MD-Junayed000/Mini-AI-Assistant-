@@ -43,7 +43,7 @@ async def _probe_chroma() -> tuple[str, str]:
         except Exception:  # noqa: BLE001
             pass
 
-        import chromadb  # noqa: WPS433  (deferred to avoid import-time cost)
+        import chromadb  # deferred: avoid import cost when health endpoint isn't called
 
         client = chromadb.PersistentClient(path=get_settings().chroma_persist_dir)
         # ListCollections is cheap and proves the on-disk store is reachable.
@@ -81,7 +81,7 @@ async def _probe_ollama() -> tuple[str, str]:
 
 async def _probe_mongo() -> tuple[str, str]:
     try:
-        from motor.motor_asyncio import AsyncIOMotorClient  # noqa: WPS433
+        from motor.motor_asyncio import AsyncIOMotorClient  # deferred: only needed when MongoDB is configured
 
         cx = AsyncIOMotorClient(get_settings().mongodb_uri, serverSelectionTimeoutMS=2000)
         await cx.admin.command("ping")

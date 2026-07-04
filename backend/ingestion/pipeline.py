@@ -178,7 +178,13 @@ async def _cli_run(dir_path: Path) -> int:
         suffix = f" — backend={backend}" + (f" (reason={reason})" if reason else "")
         print(f"[ingest] {p.name}: {chunks} chunk(s){suffix}")
     BM25Index.rebuild()
-    print(f"[ingest] done: {indexed} chunk(s) indexed across {len(paths)} file(s)")
+    if failures:
+        print(
+            f"[ingest] done: {indexed} chunk(s) indexed across {len(paths)} file(s) "
+            f"(failures: {failures})"
+        )
+    else:
+        print(f"[ingest] done: {indexed} chunk(s) indexed across {len(paths)} file(s)")
     return 0 if failures == 0 else 2
 
 

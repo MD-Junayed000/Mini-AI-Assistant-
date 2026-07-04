@@ -1,7 +1,28 @@
-"""System prompts for the chat pipeline."""
+"""System prompts for the chat pipeline.
+
+The tool schema is rendered from `backend.tools.router.tool_schema_json()`
+"""
 from __future__ import annotations
 
 from backend.security.injection_guard import SYSTEM_PROMPT_INJECTION_DEFENSE
+from backend.tools.router import tool_schema_json
+from backend.tools.registry import _maybe_reload  # imported here for the live order-id sample
+
+# Render the tool schema at module load.
+_TOOL_SCHEMA_TEXT = tool_schema_json()
+
+
+def _first_order_sample() -> str:
+    """Render one real order id as a JSON example so the model sees the
+    actual id shape used by the dataset. Falls back to ORD001 if
+    data/orders.json is missing or empty."""
+    import json as _json
+    try:
+        orders = _maybe_reload("orders", "orders.json") or []
+    except Exception:
+        orders = []
+    sample_id = orders[0]["order_id"] if orders else "ORD001"
+    return _json.dumps({"order_id": sample_id})
 
 # Base system prompt + injection-defense tail.
 #
@@ -9,14 +30,15 @@ from backend.security.injection_guard import SYSTEM_PROMPT_INJECTION_DEFENSE
 #   * Friendly, general-purpose assistant that can chat naturally about any
 #     topic — not just orders / products / the KB.
 #   * When the user IS asking about orders, products, or the knowledge base,
-#     prefer tools and the retrieved [doc-i] context. Cite when you use them.
+#     prefer tools and the retrieved [doc-i] context. Never echo [doc-N]
+#     or [tool-result ...] markers in the user-facing reply.
 #   * For general questions ("what's the weather", "tell me a joke",
 #     "explain X"), answer from general knowledge freely. No citation needed
 #     and no fallback refusal.
 #   * Only fall back to "I don't know based on the available information."
 #     when the user is asking a domain question AND the retrieved KB / tools
 #     have nothing relevant to offer.
-BASE_SYSTEM_PROMPT = """You are the Mini AI Assistant — a friendly, careful
+BASE_SYSTEM_PROMPT = """You are MiniCo Internal Docs — a friendly, careful
 assistant for a small e-commerce operations team. You have TWO modes:
 
 1. GENERAL CHAT (default). When the user is making conversation, asking
@@ -34,16 +56,25 @@ assistant for a small e-commerce operations team. You have TWO modes:
    that the company would know about — order status, product details,
    anything about the uploaded knowledge base — prefer the two structured
    sources below, in order:
-     (a) TOOLS — for live lookups. Emit EXACTLY one JSON object on its own
-         line, nothing else:
-           {"tool": "order_status",  "args": {"order_id": "A1001"}}
-           {"tool": "product_search","args": {"query": "wireless mouse", "top_k": 5}}
-     (b) KNOWLEDGE BASE — the system provides excerpts prefixed with
-         [doc-i]. When you use information from them, cite inline like
-         [doc-2].
+    (a) TOOLS — for live lookups. The available tool schema is:
 
-   In domain mode, if neither (a) nor (b) answers the question, reply:
-     "I don't know based on the available information."
+""" + _TOOL_SCHEMA_TEXT + """
+
+         When you choose to call a tool, emit EXACTLY one JSON object on
+         its own line, nothing else. Fill `args` with values that match
+         the schema (any order id the user mentioned, any product name
+         the user asked about) — never invent placeholder values.
+         The first order id in the live dataset is """ + _first_order_sample() + """
+         — use that exact shape for order_status calls.
+    (b) KNOWLEDGE BASE — the system provides excerpts prefixed with
+        [doc-i] for your reference only. Do NOT echo those markers
+        or any [doc-N] / [tool-result ...] citation tokens in the
+        user-facing reply — answer naturally and concisely.
+    Answer in brief when the user wants a short reply and in detail
+    when they ask for explanation. Always be honest about uncertainty.
+
+  In domain mode, if neither (a) nor (b) answers the question, reply:
+    "I don't know based on the available information."
 
 How to choose the mode:
   - If the message is a greeting, pleasantry, or short social turn

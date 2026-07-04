@@ -89,6 +89,26 @@ ERROR_MESSAGES: dict[str, str] = {
     "rate_limited": "You're sending messages too quickly — please wait a moment and retry.",
     # memory
     "memory_unavailable": "I can't recall our previous conversation right now. Please try again later.",
+    # --- KB / Chroma lifecycle (added when the recovery paths were wired) ---
+    # The recovery paths have clear next-steps, so these strings point the
+    # operator (or end user) at the right button instead of the generic
+    # "something went wrong" fallback.
+    "chroma_restart_required": (
+        "The vector index is unrecoverable in this process. "
+        "Restart the API server, or run `make recover-chroma`."
+    ),
+    "chroma_recovered_retry_ingest": (
+        "The vector index was rebuilt on startup. "
+        "Click Upload again to index your document."
+    ),
+    "extract_failed": (
+        "I couldn't read that document. The file may be corrupted, "
+        "password-protected, or in an unsupported layout."
+    ),
+    "chroma_unrecoverable": (
+        "The vector index is in an unrecoverable state. "
+        "Restart the API server, or run `make recover-chroma`."
+    ),
 }
 
 

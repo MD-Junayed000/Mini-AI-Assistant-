@@ -53,11 +53,35 @@ from backend.observability.tracing import tracer
 from backend.retrieval.gate import evaluate as gate_evaluate
 from backend.retrieval.hybrid import retrieve as hybrid_retrieve, Retrieved
 from backend.security.injection_guard import score as score_injection
-from backend.tools.router import dispatch as dispatch_tool, parse_tool_intent
+from backend.tools.router import (
+    ToolCall,
+    detect_intent as detect_tool_intent,
+    dispatch as dispatch_tool,
+    parse_tool_intent,
+)
 
 log = get_logger("pipeline")
 
 _FALLBACK_ANSWER = "I don't know based on the available information."
+
+# Marker regexes the model sometimes echoes from the prompt scaffold.
+# Stripping them keeps the user-facing bubble clean even when the LLM
+# copies our [doc-i] / [tool-result ...] framing into its reply.
+_TOOL_MARKER_RE = re.compile(r"\[tool-result[^\]]*\]")
+_DOC_MARKER_RE = re.compile(r"\[doc-\d+\]")
+_MARKER_LINE_RE = re.compile(r"^\s*(?:\[[^\]]+\]\s*)+$", re.MULTILINE)
+
+
+def _sanitize_answer(text: str) -> str:
+    """Strip internal scaffolding markers from the LLM's user-facing reply."""
+    if not text:
+        return text
+    text = _TOOL_MARKER_RE.sub("", text)
+    text = _DOC_MARKER_RE.sub("", text)
+    text = _MARKER_LINE_RE.sub("", text)
+    # Collapse runs of blank lines left behind by the removals.
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 # Regex matches greetings / pleasantries / very short non-question messages
 # where retrieval is meaningless. We still call the LLM so the assistant
@@ -166,10 +190,20 @@ async def _run_chat_inner(
             history = history[:-1]
 
     # 4. Early tool parse.
+    # First try the natural-language detector — it's deterministic and
+    # handles "where is my order ORD001?" / "price of X" without forcing the
+    # user to emit JSON. Fall back to JSON parsing for cases where the LLM
+    # (or a templated client) emitted an explicit tool intent.
+    early_tool: ToolCall | None = None
     try:
-        early_tool = parse_tool_intent(user_message)
+        early_tool = detect_tool_intent(user_message)
     except Exception:  # noqa: BLE001
         early_tool = None
+    if early_tool is None:
+        try:
+            early_tool = parse_tool_intent(user_message)
+        except Exception:  # noqa: BLE001
+            early_tool = None
 
     tool_calls_made: list[dict[str, Any]] = []
     extra_context_blocks: list[str] = []
@@ -234,10 +268,20 @@ async def _run_chat_inner(
                 )
             )
         answer = resp.text
+        # Empty / whitespace-only LLM outputs: never ship a blank bubble.
+        # If a tool already ran on the user side, surface its result.
+        # Otherwise degrade to the standard fallback line so the UI has
+        # something to render.
+        if not answer or not answer.strip():
+            log.warning("llm_empty_response", session=session_id, model=resp.model)
+            if tool_calls_made:
+                answer = _render_tool_results(tool_calls_made)
+            else:
+                answer = _FALLBACK_ANSWER
     except Exception as e:  # noqa: BLE001
         log.error("llm_chat_failed", error=str(e))
         if tool_calls_made:
-            summary = _format_tool_summary(tool_calls_made)
+            summary = _render_tool_results(tool_calls_made)
             # Persist so the chat history is complete on reload.
             await memory.append(
                 Message(
@@ -277,9 +321,15 @@ async def _run_chat_inner(
                 log.warning("tool_late_dispatch_failed", tool=late_tool.name, error=str(e))
                 result = {"error": str(e)}
         tool_calls_made.append({"tool": late_tool.name, "args": late_tool.args, "result": result})
-        answer = _format_tool_summary(tool_calls_made)
+        answer = _render_tool_results(tool_calls_made)
 
-    # 8. Persist assistant turn.
+    # 8. Sanitize the user-facing answer.
+    # The LLM sometimes leaks internal markers like "[tool-result ...]" or
+    # "[doc-1]" into its reply — these are scaffolding, not user content.
+    # Strip them so the bubble in the UI never shows raw tool/retrieval dumps.
+    answer = _sanitize_answer(answer)
+
+    # 9. Persist assistant turn.
     with _maybe_span("chat.memory_append_assistant"):
         await memory.append(
             Message(
@@ -314,16 +364,90 @@ async def _run_chat_inner(
 
 
 def _format_tool_summary(calls: list[dict[str, Any]]) -> str:
+    """Generic fallback formatter for any tool — used when the structured
+    formatter does not recognize the tool name. Never echo raw repr() of a
+    list/dict — it tends to produce ugly single-line dumps."""
     lines: list[str] = []
     for c in calls:
         lines.append(f"**{c['tool']}**:")
         v = c["result"]
         if isinstance(v, list):
             for row in v[:5]:
-                lines.append(f"- {row}")
+                if isinstance(row, dict):
+                    for k, val in row.items():
+                        lines.append(f"- {k}: {val}")
+                else:
+                    lines.append(f"- {row}")
         elif isinstance(v, dict):
-            for k, val in v.items():
-                lines.append(f"- {k}: {val}")
+            if "error" in v and len(v) == 1:
+                lines.append(f"- error: {v['error']}")
+            else:
+                for k, val in v.items():
+                    lines.append(f"- {k}: {val}")
         else:
             lines.append(f"- {v}")
     return "\n".join(lines)
+
+
+def _format_structured_tool_response(call: ToolCall, result: Any) -> str:
+    """Always emit the exact structured shape the product requires:
+
+      * order_status  -> "Order Status: <status>\\nEstimated Delivery Date: <date>"
+      * product_search -> "Product Name | Price | Stock Availability" table
+
+    Order of fields is fixed by product spec — do not swap them.
+    Unknown tools fall back to the generic summary formatter.
+    """
+    if call.name == "order_status" and isinstance(result, dict):
+        status = result.get("status") or result.get("state") or "unknown"
+        eta = (
+            result.get("estimated_delivery")
+            or result.get("eta")
+            or result.get("delivery_date")
+            or "unknown"
+        )
+        return (
+            f"Order Status: {status}\n"
+            f"Estimated Delivery Date: {eta}"
+        )
+
+    if call.name == "product_search" and isinstance(result, list):
+        if not result:
+            return "No matching products found."
+        rows = ["Product Name | Price | Stock Availability"]
+        for p in result[:5]:
+            if not isinstance(p, dict):
+                rows.append(str(p))
+                continue
+            name = p.get("name") or p.get("title") or "?"
+            try:
+                price = f"${float(p.get('price', 0)):.2f}"
+            except (TypeError, ValueError):
+                price = f"${p.get('price', '?')}"
+            try:
+                stock = int(p.get("stock", 0) or 0)
+            except (TypeError, ValueError):
+                stock = 0
+            availability = f"In stock ({stock})" if stock > 0 else "Out of stock"
+            rows.append(f"{name} | {price} | {availability}")
+        return "\n".join(rows)
+
+    # Fallback for tools we haven't taught the structured formatter yet.
+    return _format_tool_summary([{"tool": call.name, "args": call.args, "result": result}])
+
+
+def _render_tool_results(tool_calls_made: list[dict[str, Any]]) -> str:
+    """Render the assistant-facing summary of every tool call made. Uses the
+    structured formatter when the call shape is recognized, otherwise the
+    generic summary. Returns a single multi-line string suitable for both
+    the UI bubble and the persistence layer."""
+    parts: list[str] = []
+    for c in tool_calls_made:
+        # Reconstruct a minimal ToolCall for the structured formatter.
+        try:
+            tc = ToolCall(name=c["tool"], args=c.get("args") or {})
+        except Exception:  # noqa: BLE001
+            parts.append(_format_tool_summary([c]))
+            continue
+        parts.append(_format_structured_tool_response(tc, c.get("result")))
+    return "\n\n".join(p for p in parts if p)

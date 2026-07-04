@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Mini AI Assistant", version="0.2.2", lifespan=lifespan)
+    app = FastAPI(title="MiniCo Internal Docs", version="0.2.2", lifespan=lifespan)
 
     # Rate limiter state — slowapi requires this on the app.
     app.state.limiter = limiter

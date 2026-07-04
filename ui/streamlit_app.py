@@ -326,24 +326,17 @@ with st.sidebar:
                         # Surface the failure cleanly: bad file, empty doc,
                         # or a backend that couldn't parse anything.
                         why = detail or reason or "no text could be extracted"
-                        # Two restart-needed paths use the same UI message:
-                        #   - chroma_recovered_retry_ingest: the server
-                        #     quarantined a corrupt index on startup and
-                        #     this request rebuilds it transparently. The
-                        #     next click on Upload is what *indexes* the
-                        #     file — explain that.
-                        #   - chroma_restart_required: the in-process
-                        #     self-heal could not finish (this worker is
-                        #     still holding file handles). The operator
-                        #     needs to restart uvicorn or run
-                        #     `make recover-chroma`.
-                        if reason in ("chroma_recovered_retry_ingest", "chroma_restart_required"):
+                        # chroma_restart_required: the in-process self-heal
+                        # could not finish (this worker is still holding
+                        # file handles). The operator needs to restart
+                        # uvicorn or run `make recover-chroma`.
+                        if reason == "chroma_restart_required":
                             st.warning(
-                                f"⚠ Chroma index needed a rebuild. "
-                                f"Click **Upload** again to index "
-                                f"{uploaded.name}; if it still fails, "
-                                f"restart the API server or run "
-                                f"`make recover-chroma`."
+                                f"⚠ Vector index is unrecoverable in "
+                                f"this process. Restart the API server "
+                                f"or run `make recover-chroma`, then "
+                                f"click **Upload** again to index "
+                                f"{uploaded.name}."
                             )
                         else:
                             st.error(
@@ -361,6 +354,127 @@ with st.sidebar:
                         st.success(msg)
                 except httpx.HTTPError as exc:
                     st.error(str(exc))
+
+    st.divider()
+    st.markdown("### Indexed documents")
+    st.caption(
+        "Each row below is one uploaded file’s chunks. "
+        "Use the trash icon to clear a single document, or \"Clear all\" "
+        "to wipe the whole knowledge base. The original files in "
+        "`data/uploads/` are NOT deleted."
+    )
+
+    @st.cache_data(ttl=5, show_spinner=False)
+    def _fetch_kb_sources() -> dict[str, Any]:
+        try:
+            r = HTTP.get(
+                f"{API}/admin/kb/sources",
+                headers={"Connection": "close"},
+                timeout=5,
+            )
+            r.raise_for_status()
+            return r.json()
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc), "sources": []}
+
+    def _clear_kb_source(source: str) -> dict[str, Any]:
+        try:
+            r = HTTP.post(
+                f"{API}/admin/kb/clear-source",
+                json={"source": source},
+                headers={"Connection": "close"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            return {"ok": True, "body": r.json()}
+        except httpx.HTTPError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def _clear_kb_all() -> dict[str, Any]:
+        try:
+            r = HTTP.post(
+                f"{API}/admin/kb/clear",
+                headers={"Connection": "close"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            return {"ok": True, "body": r.json()}
+        except httpx.HTTPError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    kb = _fetch_kb_sources()
+    if kb.get("error"):
+        st.caption(f"KB status unavailable: {kb['error']}")
+    sources = kb.get("sources") or []
+    total_chunks = kb.get("total_chunks", 0)
+    if not sources:
+        st.caption("No documents indexed yet — upload a file above.")
+    else:
+        st.caption(
+            f"{len(sources)} document(s) · {total_chunks} chunk(s) total"
+        )
+        # Render each indexed source as one row: name + chunk count + clear.
+        # The full `source` string is opaque (it's the stored path), so we
+        # show a short basename prefix and keep the full string in `key=`.
+        for s in sources:
+            full = s["source"]
+            chunks = s["chunks"]
+            # Display only the basename to keep the row narrow. The full
+            # path is preserved internally so the API call can match exactly.
+            short = full.replace("\\", "/").rsplit("/", 1)[-1]
+            cols = st.columns([0.78, 0.22], gap="small")
+            with cols[0]:
+                st.markdown(
+                    f"**{short}** &nbsp;<small>{chunks} chunk(s)</small>",
+                    unsafe_allow_html=True,
+                )
+            with cols[1]:
+                if st.button(
+                    "✕",
+                    key=f"clear_src::{full}",
+                    help=f"Clear {chunks} chunk(s) from {full}",
+                    use_container_width=True,
+                ):
+                    res = _clear_kb_source(full)
+                    if res["ok"]:
+                        body = res["body"]
+                        st.success(
+                            f"Cleared {body.get('removed', 0)} chunk(s) from {short}."
+                        )
+                        _fetch_kb_sources.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"Clear failed: {res['error']}")
+
+        # Clear-all sits below the per-doc rows, visually separated so a
+        # misclick on the trash icon can't take down the whole KB.
+        with st.expander("Danger zone", expanded=False):
+            st.caption(
+                "Removes every chunk from the vector store and rebuilds "
+                "BM25 from the now-empty index. Your original files in "
+                "`data/uploads/` are kept — re-upload to re-index."
+            )
+            confirm = st.checkbox(
+                "I understand this clears the entire knowledge base.",
+                key="kb_clear_all_confirm",
+            )
+            if st.button(
+                "Clear all indexed chunks",
+                type="primary",
+                disabled=not confirm,
+                use_container_width=True,
+                key="kb_clear_all_btn",
+            ):
+                res = _clear_kb_all()
+                if res["ok"]:
+                    body = res["body"]
+                    st.success(
+                        f"Cleared {body.get('removed', 0)} chunk(s) from the KB."
+                    )
+                    _fetch_kb_sources.clear()
+                    st.rerun()
+                else:
+                    st.error(f"Clear failed: {res['error']}")
 
     st.divider()
     st.markdown("### Chats")

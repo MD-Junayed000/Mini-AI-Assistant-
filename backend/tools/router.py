@@ -30,18 +30,119 @@ class ToolCall:
 
 _TOOL_SCHEMA: dict[str, dict[str, Any]] = {
     "order_status": {
-        "required": ["order_id"],
-        "properties": {"order_id": {"type": "string"}},
+        "parameters": {
+            "type": "object",
+            "required": ["order_id"],
+            "properties": {"order_id": {"type": "string"}},
+        }
     },
     "product_search": {
-        "required": ["query"],
-        "properties": {"query": {"type": "string"}, "top_k": {"type": "integer"}},
+        "parameters": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string"},
+                "top_k": {"type": "integer"},
+            },
+        }
     },
 }
+
+
+def tool_schema_json() -> str:
+    """Render the tool schema as a JSON fragment for inclusion in a prompt.
+
+    Output is the OpenAI-style ``{"tools": [{"name": ..., "parameters": ...}, ...]}``
+    shape so the model reads it as a familiar tool catalog. Schema-driven,
+    never hard-codes sample ids or product names — those live in
+    ``data/orders.json`` and ``data/products.json``.
+    """
+    schema = {
+        "tools": [
+            {"name": name, "parameters": spec["parameters"]}
+            for name, spec in _TOOL_SCHEMA.items()
+        ]
+    }
+    return json.dumps(schema, indent=2)
+
 
 # JSON fence extraction — looks for ```json ... ``` first, then { ... }.
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 _JSON_OBJ = re.compile(r"(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})", re.DOTALL)
+
+# Natural-language intent detection — runs BEFORE the LLM so the
+# structured reply is deterministic and never depends on the model
+# emitting correct JSON.
+_ORDER_ID_RE = re.compile(r"\b([A-Z]{1,5}-?\d{2,6})\b", re.IGNORECASE)
+# Query phrases that signal "look up a product in the catalog". Three groups:
+#   1) lead-in verb + remaining noun phrase as the query
+#      ("do you have X", "price of X", "where can I find X")
+#   2) noun phrase + "in stock"/"available"  ("is the usb-c hub in stock")
+#   3) generic catalog words anywhere in the sentence as a fallback
+_PRODUCT_TRIGGERS = re.compile(
+    r"(?:"
+    r"(?:do\s+you\s+(?:have|carry|sell|stock)|"
+    r"(?:price|cost|stock|availability)\s+(?:of|for)?|"
+    r"(?:search|find|look\s*up)\s+(?:for\s+)?|"
+    r"where\s+can\s+i\s+(?:find|get|buy)|"
+    r"can\s+i\s+(?:get|buy|order))"
+    r"\s+(?P<q1>.+)"
+    r")|"
+    r"(?:"
+    r"is\s+(?:the\s+|a\s+)?(?P<q2>[\w\s'-]+?)\s+"
+    r"(?:in\s+stock|in\s+store|available|in\s+inventory|on\s+hand)"
+    r")|"
+    r"(?:"
+    r"\b(?P<kw>product|products|laptop|headphones?|keyboard|mouse|"
+    r"monitor|wireless|bluetooth)\b"
+    r")",
+    re.IGNORECASE,
+)
+# Bare mention of "order" + id-shaped token (e.g. "what about my order ORD001?")
+_ORDER_CONTEXT_RE = re.compile(
+    r"\border\b[^.\n]*?\b([A-Z]{1,5}-?\d{2,6})\b", re.IGNORECASE
+)
+
+
+def detect_intent(text: str) -> ToolCall | None:
+    """Heuristic natural-language intent detector.
+
+    Returns a ToolCall when the user message clearly targets one of the
+    registered tools, otherwise None. Runs after `parse_tool_intent`
+    has had its chance (which handles JSON-intent directly).
+    """
+    if not text:
+        return None
+
+    # 1. Explicit order-id mention inside an order context.
+    m = _ORDER_CONTEXT_RE.search(text)
+    if m:
+        return ToolCall(name="order_status", args={"order_id": m.group(1).upper()})
+
+    # 2. Bare order-id token anywhere in the message (e.g. "ORD001?").
+    m = _ORDER_ID_RE.search(text)
+    if m:
+        # Only treat as order if the surrounding text isn't clearly a
+        # product query (the PRODUCT_RE check below would have caught
+        # it anyway, so order takes precedence here).
+        return ToolCall(name="order_status", args={"order_id": m.group(1).upper()})
+
+    # 3. Product-search phrasing.
+    m = _PRODUCT_TRIGGERS.search(text)
+    if m:
+        query = (
+            m.group("q1")
+            or m.group("q2")
+            or m.group("kw")
+            or ""
+        ).strip().rstrip(".?!")
+        if not query:
+            return None
+        # For keyword-only matches, the query is the matched word itself
+        # ("laptop", "wireless"). That's fine — registry fuzzy-matches it.
+        return ToolCall(name="product_search", args={"query": query, "top_k": 5})
+
+    return None
 
 
 def parse_tool_intent(text: str) -> ToolCall | None:

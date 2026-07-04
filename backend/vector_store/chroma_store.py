@@ -88,7 +88,7 @@ def _install_posthog_stub() -> None:
 
     stub = types.ModuleType("posthog")
 
-    def _noop(*_a, **_kw):  # noqa: ANN001
+    def _noop(*_a, **_kw):
         return None
 
     stub.capture = _noop  # type: ignore[attr-defined]
@@ -269,6 +269,75 @@ class ChromaStore:
             return self._collection.count()
 
         return await asyncio.to_thread(_c)
+
+    async def list_sources(self) -> list[dict[str, Any]]:
+        """Return one row per distinct `source` metadata value.
+
+        Used by the KB-management UI to show the user which documents are
+        currently indexed. The count is exact (from `collection.get`) rather
+        than estimated, because the take-home corpus is small.
+        """
+        def _list() -> list[dict[str, Any]]:
+            data = self._collection.get(include=["metadatas"])
+            counts: dict[str, int] = {}
+            for m in data.get("metadatas") or []:
+                src = (m or {}).get("source")
+                if not src:
+                    continue
+                counts[src] = counts.get(src, 0) + 1
+            return [
+                {"source": src, "chunks": n}
+                for src, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ]
+
+        return await asyncio.to_thread(_list)
+
+    async def delete_by_source(self, source: str) -> int:
+        """Delete every chunk whose metadata `source` matches `source` exactly.
+
+        Returns the number of chunks removed (0 if the source was unknown).
+        Safe to call when the collection is empty. The matching is on the
+        full stored path string (e.g. `data/uploads/foo.pdf`), so callers
+        must pass the value returned by `list_sources()`.
+        """
+        if not source:
+            return 0
+
+        def _del() -> int:
+            existing = self._collection.get(
+                where={"source": source}, include=[]
+            )
+            ids = list(existing.get("ids") or [])
+            if not ids:
+                return 0
+            # Delete in batches to stay under Chroma's per-call limits on
+            # very large collections. Take-home corpus is small so a single
+            # batch is fine, but keep the loop defensively.
+            BATCH = 500
+            for i in range(0, len(ids), BATCH):
+                self._collection.delete(ids=ids[i:i + BATCH])
+            return len(ids)
+
+        return await asyncio.to_thread(_del)
+
+    async def clear_all(self) -> int:
+        """Remove every chunk in the collection. Returns the deleted count.
+
+        Faster than `reset()` because it keeps the collection (and its
+        embedding-function binding) intact — `reset()` would also have to
+        re-bind the ONNX embedder, which is a noticeable cost on Windows.
+        """
+        def _clear() -> int:
+            data = self._collection.get(include=[])
+            ids = list(data.get("ids") or [])
+            if not ids:
+                return 0
+            BATCH = 500
+            for i in range(0, len(ids), BATCH):
+                self._collection.delete(ids=ids[i:i + BATCH])
+            return len(ids)
+
+        return await asyncio.to_thread(_clear)
 
     async def reset(self) -> None:
         def _r() -> None:

@@ -50,7 +50,7 @@ class LocalBackend:
 
     def _ensure_model(self) -> None:
         if self._model is None:
-            from sentence_transformers import SentenceTransformer  # noqa: WPS433
+            from sentence_transformers import SentenceTransformer  # deferred: avoid heavy import cost on cold paths
 
             log.info("embeddings_local_load", model=self._model_name)
             self._model = SentenceTransformer(self._model_name)
@@ -152,7 +152,7 @@ def get_embedder() -> LocalBackend | HFRouterBackend:
 
 
 # Backwards-compatible alias — code elsewhere imports `HFEmbeddingClient`.
-class HFEmbeddingClient:  # noqa: D401  (kept name for compatibility)
+class HFEmbeddingClient:  # name kept for back-compat with downstream call sites
     """Thin async wrapper around `get_embedder()`."""
 
     async def embed(self, texts: list[str]) -> list[list[float]]:

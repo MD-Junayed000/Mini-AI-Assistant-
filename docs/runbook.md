@@ -104,3 +104,33 @@ is required.
   (`user` vs `document`).
 - **Mitigation**: temporarily raise the detector threshold; flag the
   offending uploader.
+
+---
+
+## Knowledge-base operations
+
+Routine clearing of indexed chunks is handled by three endpoints — they
+do not touch `data/uploads/` on disk, so the original files remain
+available for re-ingestion.
+
+| Endpoint | When to use |
+|---|---|
+| `GET  /admin/kb/sources` | See what is currently indexed and per-source chunk counts. |
+| `POST /admin/kb/clear-source` | Re-ingest a single updated document, or remove a wrong upload. Body: `{"source": "data/uploads/report.pdf"}`. |
+| `POST /admin/kb/clear` | Full KB reset before a new project. |
+
+Each clear endpoint rebuilds the BM25 lexical index so the next query
+does not return stale hits.
+
+### Streamlit UI
+
+The sidebar shows an **Indexed documents** list with a trash icon next
+to each source, plus a danger-zone expander that requires a checkbox
+confirmation before wiping everything. Both call the same endpoints.
+
+### Last-resort: `make recover-chroma`
+
+If uvicorn itself crashes on `/ingest` because the on-disk vector
+index is corrupt, the API endpoints above are unavailable. Stop the
+API, run `make recover-chroma`, then re-ingest. **Files in
+`data/uploads/` are not affected.**

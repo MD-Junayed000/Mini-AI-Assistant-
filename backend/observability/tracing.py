@@ -76,7 +76,7 @@ def init_tracing() -> Any:
         def __init__(self, inner):
             self._inner = inner
 
-        def export(self, spans):  # noqa: ANN001
+        def export(self, spans):
             try:
                 return self._inner.export(spans)
             except Exception as e:  # noqa: BLE001
@@ -87,7 +87,7 @@ def init_tracing() -> Any:
 
                 return SpanExportResult.SUCCESS
 
-        def shutdown(self):  # noqa: D401
+        def shutdown(self):
             try:
                 self._inner.shutdown()
             except Exception as e:  # noqa: BLE001

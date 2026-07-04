@@ -1,4 +1,4 @@
-"""HTTP routes — /ingest, /chat, /session/{id}/reset, /healthz, /metrics, /admin/cache/refresh."""
+"""HTTP routes — /ingest, /chat, /session/{id}/reset, /healthz, /metrics, /admin/cache/refresh, /admin/kb/sources, /admin/kb/clear, /admin/kb/clear-source."""
 # NOTE: no `from __future__ import annotations` here — slowapi's decorator wrapper
 # breaks FastAPI's signature introspection of `body: ChatIn` when PEP 563 turns
 # annotations into strings, raising PydanticUndefinedAnnotation at import time.
@@ -19,6 +19,7 @@ from backend.errors import AppError, ValidationError, friendly_message
 from backend.ingestion.pipeline import ingest_file
 from backend.memory import Memory
 from backend.observability.health import healthz_payload
+from backend.observability.logging_config import get_logger
 from backend.observability.metrics import (
     HTTP_LATENCY,
     HTTP_REQUESTS,
@@ -33,6 +34,7 @@ from backend.tools.registry import refresh_cache as refresh_tool_cache
 from backend.vector_store.bm25_index import BM25Index
 
 router = APIRouter()
+log = get_logger("routes")
 
 
 # ---------- Schemas -------------------------------------------------------
@@ -46,7 +48,7 @@ class RenameIn(BaseModel):
 
 
 # ---------- Dependencies --------------------------------------------------
-def get_memory() -> Memory:  # noqa: D401
+def get_memory() -> Memory:
     """Process-singleton Memory instance — replaced by FastAPI's DI in main.py."""
     return _memory_instance  # type: ignore[name-defined]
 
@@ -79,7 +81,7 @@ async def _track_http(request: Request, call_next):  # type: ignore[no-untyped-d
 async def root() -> dict:
     """Friendly landing — the UI lives at the Streamlit port (default 8501)."""
     return {
-        "service": "Mini AI Assistant",
+        "service": "MiniCo Internal Docs",
         "version": "0.2.2",
         "ui": "http://localhost:8501 (run `streamlit run ui/streamlit_app.py`)",
         "endpoints": {
@@ -239,6 +241,82 @@ def admin_refresh_cache() -> dict:
     refresh_tool_cache()
     BM25Index.rebuild()
     return {"refreshed": True}
+
+
+class ClearSourceIn(BaseModel):
+    """Body for `POST /admin/kb/clear-source`.
+
+    `source` is the exact metadata string the pipeline stored at ingest time
+    (e.g. `data/uploads/foo.pdf`). Use `GET /admin/kb/sources` first to see
+    the canonical names — never guess, two uploads with the same filename
+    in different directories are *not* the same source.
+    """
+
+    source: str = Field(..., min_length=1, max_length=512)
+
+
+@router.get("/admin/kb/sources")
+async def admin_list_sources() -> dict:
+    """List every distinct source currently in the vector store.
+
+    Returns one entry per upload with the chunk count, sorted by chunk count
+    descending then source name ascending. Used by the Streamlit sidebar to
+    render a "Clear this document" button per indexed file.
+    """
+    from backend.vector_store.chroma_store import ChromaStore
+
+    store = ChromaStore()
+    sources = await store.list_sources()
+    total_chunks = sum(s["chunks"] for s in sources)
+    return {
+        "sources": sources,
+        "total_chunks": total_chunks,
+        "total_sources": len(sources),
+    }
+
+
+@router.post("/admin/kb/clear-source")
+async def admin_clear_source(body: ClearSourceIn) -> dict:
+    """Delete every chunk that came from a single source.
+
+    Use `GET /admin/kb/sources` to discover the exact `source` value — the
+    matching is on the full stored path string, not the filename, so a file
+    called `report.pdf` uploaded from two different directories is
+    distinguished correctly.
+
+    After the deletion we rebuild BM25 so lexical search stays consistent
+    with what the vector store actually contains.
+    """
+    from backend.vector_store.chroma_store import ChromaStore
+
+    store = ChromaStore()
+    removed = await store.delete_by_source(body.source)
+    BM25Index.rebuild()
+    log.info(
+        "kb_cleared_source",
+        source=body.source,
+        removed=removed,
+    )
+    return {"source": body.source, "removed": removed}
+
+
+@router.post("/admin/kb/clear")
+async def admin_clear_kb() -> dict:
+    """Remove every chunk from the vector store.
+
+    Does NOT touch the on-disk uploads directory (`data/uploads/`) — the
+    files stay around so the user can re-ingest them. We only wipe the
+    *indexed* representation in Chroma + the BM25 cache.
+
+    After deletion, BM25 is rebuilt (it'll come back empty).
+    """
+    from backend.vector_store.chroma_store import ChromaStore
+
+    store = ChromaStore()
+    removed = await store.clear_all()
+    BM25Index.rebuild()
+    log.info("kb_cleared_all", removed=removed)
+    return {"removed": removed}
 
 
 # ---------- Global exception handler (registered in main.py) ------------
