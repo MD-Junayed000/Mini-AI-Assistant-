@@ -222,6 +222,12 @@ export default function App() {
 
   return (
     <div className="app">
+      {sidebarOpen && (
+          <div
+              className="sidebar-overlay"
+              onClick={() => setSidebarOpen(false)}
+          />
+      )}
       <Sidebar
         activeSid={activeSid}
         titles={sidebarTitles}
