@@ -37,7 +37,6 @@ COPY main.py ./
 COPY pyproject.toml ./
 COPY ops/ ./ops/
 COPY data/ ./data/
-COPY docs/ ./docs/
 
 COPY --from=web /web/dist /web/dist
 
