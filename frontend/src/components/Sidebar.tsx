@@ -28,6 +28,8 @@ interface Props {
   onSessionsTouched: () => void;
   onKbChanged: () => void;
   refreshTrigger: number;
+  isOpen?: boolean;           // ← NEW
+  onClose?: () => void;       // ← NEW
 }
 
 type Notice = { kind: "ok" | "warn" | "err" | "info"; text: string };
